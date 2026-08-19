@@ -35,7 +35,13 @@ class CallLogReader(private val context: Context) {
         timeZone = TimeZone.getTimeZone("UTC")
     }
 
-    /** [afterId] dan keyingi barcha qo'ng'iroqlarni qaytaradi (eskisidan yangisiga). */
+    /**
+     * [afterId] dan keyingi qo'ng'iroqlarni qaytaradi (eskisidan yangisiga tartibda).
+     *
+     * DIQQAT: tartib `_ID DESC` bo'lishi SHART. ASC bo'lsa limit eng ESKI
+     * yozuvlarni oladi va katta tarixi bor telefonda ilova oylab eski
+     * qo'ng'iroqlarni yuklab yuradi. Natija oxirida teskari qilinadi.
+     */
     fun readNewerThan(afterId: Long, limit: Int = 200): List<CallEntry> {
         val projection = arrayOf(
             CallLog.Calls._ID,
@@ -51,7 +57,7 @@ class CallLogReader(private val context: Context) {
             projection,
             "${CallLog.Calls._ID} > ?",
             arrayOf(afterId.toString()),
-            "${CallLog.Calls._ID} ASC",
+            "${CallLog.Calls._ID} DESC",
         )?.use { cursor ->
             val idIdx = cursor.getColumnIndexOrThrow(CallLog.Calls._ID)
             val numberIdx = cursor.getColumnIndexOrThrow(CallLog.Calls.NUMBER)
@@ -78,7 +84,8 @@ class CallLogReader(private val context: Context) {
                 )
             }
         }
-        return result
+        // DESC o'qildi — Odoo'ga eskisidan yangisiga tartibda yuboramiz
+        return result.reversed()
     }
 
     /** Jurnaldagi eng katta ID — birinchi ishga tushirishda "eskilarni yubormaslik" uchun. */

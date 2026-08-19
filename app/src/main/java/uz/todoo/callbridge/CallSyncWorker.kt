@@ -44,13 +44,21 @@ class CallSyncWorker(
         val queue = RecordingQueue(applicationContext)
 
         // 1) Yangi qo'ng'iroqlar
-        val entries = if (prefs.lastCallLogId == 0L) {
-            // Birinchi ishga tushish: butun tarixni to'kib yubormaymiz,
-            // lekin oxirgi bir nechtasini yuboramiz — shunda birinchi
-            // qo'ng'iroq ham yo'qolmaydi
-            reader.readNewerThan(0L).takeLast(FIRST_RUN_LIMIT)
-        } else {
-            reader.readNewerThan(prefs.lastCallLogId)
+        // Birinchi ishga tushish: butun tarixni to'kib yubormaymiz.
+        // Boshlang'ich nuqtani jurnalning ENG OXIRIDAN belgilaymiz, shunda
+        // faqat oxirgi bir nechta qo'ng'iroq yuboriladi.
+        if (prefs.lastCallLogId == 0L) {
+            val latest = reader.latestId()
+            prefs.lastCallLogId = maxOf(0L, latest - FIRST_RUN_LIMIT)
+            prefs.log("Birinchi ishga tushish — boshlang'ich jurnal ID: ${prefs.lastCallLogId}")
+        }
+
+        // Ikkinchi himoya: qanday xato bo'lsa ham eski tarix yuborilmasin
+        val oldestAllowed = System.currentTimeMillis() - MAX_AGE_MS
+        val all = reader.readNewerThan(prefs.lastCallLogId)
+        val entries = all.filter { it.startMillis >= oldestAllowed }
+        if (all.size != entries.size) {
+            prefs.log("${all.size - entries.size} ta eski qo'ng'iroq o'tkazib yuborildi")
         }
 
         if (entries.isNotEmpty()) {
@@ -60,8 +68,6 @@ class CallSyncWorker(
                 prefs.log("Yuborilmadi (qayta urinamiz): ${e.message}")
                 return Result.retry()
             }
-
-            prefs.lastCallLogId = entries.maxOf { it.deviceCallId.toLong() }
             prefs.log("Yuborildi: ${entries.size} ta qo'ng'iroq")
 
             // Audio yuklashni navbatga qo'yamiz — fayl hali yozilayotgan bo'lishi mumkin
@@ -70,6 +76,13 @@ class CallSyncWorker(
                 if (entry.durationSeconds <= 0) continue // javobsiz — yozuv bo'lmaydi
                 queue.add(odooId, entry.startMillis, entry.endMillis)
             }
+        }
+
+        // Kursorni O'QILGANLARNING hammasi bo'yicha suramiz, yuborilganlar
+        // bo'yicha emas — aks holda filtrlangan eski yozuvlar har safar
+        // qayta o'qilib turadi
+        if (all.isNotEmpty()) {
+            prefs.lastCallLogId = all.maxOf { it.deviceCallId.toLong() }
         }
 
         // 2) Audio yozuvlar
@@ -128,6 +141,9 @@ class CallSyncWorker(
 
         /** Birinchi ishga tushishda yuboriladigan eng oxirgi qo'ng'iroqlar soni. */
         private const val FIRST_RUN_LIMIT = 3
+
+        /** Bundan eski qo'ng'iroq hech qachon yuborilmaydi (7 kun). */
+        private const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
 
         /**
          * Qo'ng'iroqdan keyin bir marta ishga tushirish.
