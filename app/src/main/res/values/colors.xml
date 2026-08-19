@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#1F6F5C</color>
+
+    <!-- Holat ranglari: yorug' va qorong'i rejimda ham o'qiladigan tonlar -->
+    <color name="status_ok">#2E7D32</color>
+    <color name="status_ok_bg">#1A2E7D32</color>
+    <color name="status_bad">#C62828</color>
+    <color name="status_bad_bg">#1AC62828</color>
+    <color name="status_wait">#EF6C00</color>
+    <color name="status_wait_bg">#1AEF6C00</color>
 </resources>

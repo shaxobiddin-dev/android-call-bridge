@@ -1,22 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Call Bridge</string>
-    <string name="subtitle">Telefon qo\'ng\'iroqlarini avtomatik Odoo\'ga yuboradi</string>
+    <string name="dash">—</string>
 
-    <string name="hint_url">Odoo URL (https://…)</string>
-    <string name="hint_key">Odoo API key</string>
-    <string name="hint_device_name">Xodim va telefon nomi (Odoo\'da ko\'rinadi)</string>
+    <!-- Umumiy holat -->
+    <string name="emoji_ok">✅</string>
+    <string name="emoji_wait">⏳</string>
+    <string name="emoji_bad">⚠️</string>
+    <string name="state_checking">Tekshirilmoqda…</string>
+    <string name="state_ready">Ishlayapti</string>
+    <string name="state_ready_sub">Qo\'ng\'iroqlar avtomatik Odoo\'ga yuborilmoqda. Hech narsa bosish shart emas.</string>
+    <string name="state_setup">Sozlash kerak</string>
+    <string name="state_setup_sub">Quyidagi qadamlarni bajaring — keyin hammasi o\'zi ishlaydi.</string>
+    <string name="state_offline">Internet yo\'q</string>
+    <string name="state_offline_sub">Qo\'ng\'iroqlar navbatda saqlanmoqda. Internet paydo bo\'lishi bilan o\'zi yuboriladi.</string>
+
+    <!-- Hisob -->
+    <string name="stat_sent">Bugun yuborildi</string>
+    <string name="stat_pending">Navbatda</string>
+    <string name="stat_last_sync">Oxirgi aloqa</string>
+
+    <!-- Ulanish -->
+    <string name="section_connection">Odoo ulanishi</string>
+    <string name="hint_url">Odoo manzili</string>
+    <string name="hint_key">API kalit</string>
+    <string name="hint_device_name">Xodim va telefon</string>
+    <string name="hint_device_name_helper">Odoo\'da shu nom bilan guruhlanadi, masalan: Ozodbek — Samsung S23+</string>
     <string name="btn_save">Saqlash</string>
 
-    <string name="section_setup">Bir marta sozlash</string>
-    <string name="btn_permissions">1. Ruxsatlarni berish</string>
-    <string name="btn_all_files">2. Fayllarga kirish (audio uchun)</string>
-    <string name="btn_battery">3. Batareya cheklovini o\'chirish</string>
+    <!-- Ruxsatlar -->
+    <string name="section_setup">Ruxsatlar</string>
+    <string name="perm_calllog_title">Qo\'ng\'iroq jurnali</string>
+    <string name="perm_calllog_sub">Raqam, vaqt va davomiylikni o\'qish uchun</string>
+    <string name="perm_phone_title">Telefon holati</string>
+    <string name="perm_phone_sub">Qo\'ng\'iroq tugaganini sezish uchun</string>
+    <string name="perm_files_title">Fayllarga kirish</string>
+    <string name="perm_files_sub">Audio yozuvni topib yuklash uchun</string>
+    <string name="perm_battery_title">Batareya cheklovi</string>
+    <string name="perm_battery_sub">Bunisiz ilova fonda o\'ldiriladi</string>
+    <string name="pill_ok">BERILGAN</string>
+    <string name="pill_bad">KERAK</string>
 
-    <string name="section_status">Holat</string>
-    <string name="btn_sync_now">Hozir yuborish</string>
-    <string name="btn_test_last">Sinov: oxirgi qo\'ng\'iroqni yuborish</string>
-
+    <!-- Jurnal -->
     <string name="section_log">Jurnal</string>
-    <string name="btn_clear_log">Jurnalni tozalash</string>
+    <string name="btn_clear_log">Tozalash</string>
+    <string name="log_empty">— hali yozuv yo\'q —</string>
+
+    <!-- Menyu -->
+    <string name="menu_sync">Hozir yuborish</string>
+    <string name="menu_test">Sinov: oxirgi qo\'ng\'iroq</string>
+    <string name="menu_share_log">Jurnalni ulashish</string>
+    <string name="menu_about">Ma\'lumot</string>
+
+    <!-- Xabarlar -->
+    <string name="msg_saved">Saqlandi — avtomatik rejim yoqildi</string>
+    <string name="msg_need_url_key">Odoo manzili va API kalit to\'ldirilishi kerak</string>
+    <string name="msg_need_https">Manzil https:// bilan boshlanishi kerak</string>
+    <string name="msg_sync_started">Yuborish boshlandi</string>
+    <string name="msg_log_cleared">Jurnal tozalandi</string>
 </resources>

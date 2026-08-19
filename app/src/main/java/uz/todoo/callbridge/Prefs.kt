@@ -48,6 +48,32 @@ class Prefs(context: Context) {
     val isConfigured: Boolean
         get() = odooUrl.isNotBlank() && apiKey.isNotBlank()
 
+    // --- Statistika (asosiy ekranda ko'rsatiladi) ---
+
+    /** Bugun muvaffaqiyatli yuborilgan qo'ng'iroqlar soni. Kun almashsa nolga tushadi. */
+    var sentToday: Int
+        get() = if (sp.getString(KEY_SENT_DAY, "") == today()) sp.getInt(KEY_SENT_COUNT, 0) else 0
+        private set(value) {
+            sp.edit().putString(KEY_SENT_DAY, today()).putInt(KEY_SENT_COUNT, value).apply()
+        }
+
+    fun addSent(count: Int) {
+        sentToday += count
+    }
+
+    /** Oxirgi muvaffaqiyatli aloqa vaqti (epoch millis, 0 = hali bo'lmagan). */
+    var lastSyncMillis: Long
+        get() = sp.getLong(KEY_LAST_SYNC, 0L)
+        set(value) = sp.edit().putLong(KEY_LAST_SYNC, value).apply()
+
+    /** Oxirgi xato matni — bo'sh bo'lsa hammasi joyida. */
+    var lastError: String
+        get() = sp.getString(KEY_LAST_ERROR, "").orEmpty()
+        set(value) = sp.edit().putString(KEY_LAST_ERROR, value).apply()
+
+    private fun today(): String =
+        android.text.format.DateFormat.format("yyyy-MM-dd", System.currentTimeMillis()).toString()
+
     // --- Status jurnali (adb yo'q, shuning uchun app ichida ko'rsatamiz) ---
 
     fun log(line: String) {
@@ -69,6 +95,10 @@ class Prefs(context: Context) {
         const val KEY_REC_DIR = "recording_dir"
         const val KEY_DEVICE = "device_id"
         const val KEY_LOG = "status_log"
+        const val KEY_SENT_DAY = "sent_day"
+        const val KEY_SENT_COUNT = "sent_count"
+        const val KEY_LAST_SYNC = "last_sync_millis"
+        const val KEY_LAST_ERROR = "last_error"
         const val MAX_LOG_CHARS = 20_000
     }
 }

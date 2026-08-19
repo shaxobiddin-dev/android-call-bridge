@@ -65,9 +65,13 @@ class CallSyncWorker(
             val ids = try {
                 api.push(prefs.deviceId, entries, prefs.deviceName)
             } catch (e: Exception) {
+                prefs.lastError = e.message.orEmpty()
                 prefs.log("Yuborilmadi (qayta urinamiz): ${e.message}")
                 return Result.retry()
             }
+            prefs.lastError = ""
+            prefs.lastSyncMillis = System.currentTimeMillis()
+            prefs.addSent(entries.size)
             prefs.log("Yuborildi: ${entries.size} ta qo'ng'iroq")
 
             // Audio yuklashni navbatga qo'yamiz — fayl hali yozilayotgan bo'lishi mumkin
@@ -121,6 +125,7 @@ class CallSyncWorker(
             try {
                 api.uploadRecording(pending.odooCallId, file, finder.mimeTypeFor(file))
                 queue.remove(pending.odooCallId)
+                prefs.lastSyncMillis = System.currentTimeMillis()
                 prefs.log("Audio yuklandi: ${file.name}")
             } catch (e: Exception) {
                 queue.markAttempt(pending.odooCallId)
