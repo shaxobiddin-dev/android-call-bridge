@@ -15,3 +15,8 @@ captures/
 
 # macOS
 .DS_Store
+
+# Imzo kaliti — hech qachon commit qilinmaydi
+release.keystore
+*.p12
+*.jks

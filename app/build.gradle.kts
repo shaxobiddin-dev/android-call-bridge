@@ -11,14 +11,35 @@ android {
         applicationId = "uz.todoo.callbridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
+    }
+
+    // Doimiy imzo kaliti. Fayl repoda saqlanmaydi — CI uni GitHub Secrets dan
+    // ochadi (KEYSTORE_BASE64). Kalit doimiy bo'lgani uchun yangilanish eski
+    // ilova ustiga o'rnatiladi va sozlamalar saqlanadi.
+    val keystoreFile = rootProject.file("release.keystore")
+    val keystorePassword: String? = System.getenv("KEYSTORE_PASSWORD")
+
+    signingConfigs {
+        if (keystoreFile.exists() && !keystorePassword.isNullOrBlank()) {
+            create("release") {
+                storeFile = keystoreFile
+                storeType = "PKCS12"
+                storePassword = keystorePassword
+                keyAlias = System.getenv("KEY_ALIAS") ?: "callbridge"
+                keyPassword = keystorePassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Keystore yo'q bo'lsa null qoladi va release build yig'ilmaydi —
+            // CI bunday holatda debug build ga tushadi
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 
