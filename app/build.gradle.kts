@@ -11,8 +11,8 @@ android {
         applicationId = "uz.todoo.callbridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1.1"
+        versionCode = 8
+        versionName = "1.2.0"
     }
 
     // Doimiy imzo kaliti. Fayl repoda saqlanmaydi — CI uni GitHub Secrets dan

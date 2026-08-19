@@ -145,10 +145,10 @@ class CallSyncWorker(
         private const val PERIODIC = "call_sync_periodic"
 
         /** Birinchi ishga tushishda yuboriladigan eng oxirgi qo'ng'iroqlar soni. */
-        private const val FIRST_RUN_LIMIT = 3
+        const val FIRST_RUN_LIMIT = 3
 
         /** Bundan eski qo'ng'iroq hech qachon yuborilmaydi (7 kun). */
-        private const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+        const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
 
         /**
          * Qo'ng'iroqdan keyin bir marta ishga tushirish.

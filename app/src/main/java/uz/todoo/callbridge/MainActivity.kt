@@ -9,8 +9,12 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.View
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
@@ -22,6 +26,7 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.snackbar.Snackbar
 import uz.todoo.callbridge.databinding.ActivityMainBinding
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -29,6 +34,15 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: Prefs
+
+    /** Ekran ochiq turganda holat o'zi yangilanadi — qo'lda qayta ochish shart emas. */
+    private val ticker = Handler(Looper.getMainLooper())
+    private val tick = object : Runnable {
+        override fun run() {
+            refresh()
+            ticker.postDelayed(this, REFRESH_INTERVAL_MS)
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -48,6 +62,16 @@ class MainActivity : AppCompatActivity() {
         binding.inputKey.setText(prefs.apiKey)
         binding.inputDeviceName.setText(prefs.deviceName)
 
+        val watcher = object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) = updateSaveButton()
+            override fun beforeTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(t: CharSequence?, a: Int, b: Int, c: Int) = Unit
+        }
+        binding.inputUrl.addTextChangedListener(watcher)
+        binding.inputKey.addTextChangedListener(watcher)
+        binding.inputDeviceName.addTextChangedListener(watcher)
+        updateSaveButton()
+
         binding.btnSave.setOnClickListener { save() }
         binding.btnClearLog.setOnClickListener {
             prefs.clearLog()
@@ -59,6 +83,23 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        ticker.postDelayed(tick, REFRESH_INTERVAL_MS)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        ticker.removeCallbacks(tick)
+    }
+
+    /**
+     * Saqlash tugmasi faqat o'zgarish bo'lganda yonadi. Saqlangandan keyin
+     * o'chadi — bosishga hojat yo'qligi shundan bilinadi.
+     */
+    private fun updateSaveButton() {
+        val changed = binding.inputUrl.text.toString().trim().trimEnd('/') != prefs.odooUrl ||
+            binding.inputKey.text.toString().trim() != prefs.apiKey ||
+            binding.inputDeviceName.text.toString().trim() != prefs.deviceName
+        binding.btnSave.isEnabled = changed
     }
 
     /**
@@ -87,6 +128,7 @@ class MainActivity : AppCompatActivity() {
                     snack(getString(R.string.msg_sync_started))
                     true
                 }
+                R.id.action_sync_today -> { syncToday(); true }
                 R.id.action_test -> { sendLastCallNow(); true }
                 R.id.action_share_log -> { shareLog(); true }
                 R.id.action_about -> { showAbout(); true }
@@ -152,6 +194,7 @@ class MainActivity : AppCompatActivity() {
         CallSyncWorker.runNow(this)
         prefs.log("Sozlamalar saqlandi — avtomatik rejim yoqildi")
         snack(getString(R.string.msg_saved))
+        updateSaveButton()
         refresh()
     }
 
@@ -247,6 +290,42 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * Bugungi barcha qo'ng'iroqlarni yuborish.
+     *
+     * Odatda faqat YANGI qo'ng'iroqlar ketadi (kursor oldinga suriladi).
+     * Bu amal kursorni bugungi birinchi qo'ng'iroqdan oldinga qaytaradi,
+     * shuning uchun bugungi hammasi qaytadan yuboriladi. Server dublikatni
+     * o'zi ajratadi, ya'ni takror yozuv paydo bo'lmaydi.
+     */
+    private fun syncToday() {
+        if (!prefs.isConfigured) {
+            snack(getString(R.string.msg_need_url_key))
+            return
+        }
+        if (!has(Manifest.permission.READ_CALL_LOG)) {
+            requestRuntimePermissions()
+            return
+        }
+        val dayStart = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+
+        val firstId = CallLogReader(this).firstIdSince(dayStart)
+        if (firstId == 0L) {
+            snack(getString(R.string.msg_no_calls_today))
+            return
+        }
+        prefs.lastCallLogId = maxOf(0L, firstId - 1)
+        CallSyncWorker.runNow(this)
+        prefs.log("Bugungi qo'ng'iroqlar qayta yuborilmoqda (ID >= $firstId)")
+        snack(getString(R.string.msg_sync_today))
+        refresh()
+    }
+
     private fun shareLog() {
         val text = prefs.readLog().ifBlank { getString(R.string.log_empty) }
         startActivity(
@@ -324,14 +403,27 @@ class MainActivity : AppCompatActivity() {
         binding.textOverallSub.setText(subtitle)
     }
 
-    /** Hali Odoo'ga yetib bormagan qo'ng'iroq va audio yozuvlar soni. */
+    /**
+     * Hali Odoo'ga yetib bormagan qo'ng'iroq va audio yozuvlar soni.
+     *
+     * Worker bilan BIR XIL qoidalarni qo'llaydi: birinchi ishga tushishda
+     * faqat oxirgi bir nechtasi, va 7 kundan eskilari hisobga olinmaydi.
+     * Aks holda toza o'rnatishda "200" kabi qo'rqinchli raqam ko'rinardi.
+     */
     private fun pendingCount(canReadCallLog: Boolean): Int {
-        val calls = if (canReadCallLog) {
-            runCatching { CallLogReader(this).readNewerThan(prefs.lastCallLogId).size }.getOrDefault(0)
-        } else {
-            0
-        }
-        return calls + RecordingQueue(this).read().size
+        val recordings = RecordingQueue(this).read().size
+        if (!canReadCallLog) return recordings
+
+        return runCatching {
+            val reader = CallLogReader(this)
+            val cursor = if (prefs.lastCallLogId == 0L) {
+                maxOf(0L, reader.latestId() - CallSyncWorker.FIRST_RUN_LIMIT)
+            } else {
+                prefs.lastCallLogId
+            }
+            val oldestAllowed = System.currentTimeMillis() - CallSyncWorker.MAX_AGE_MS
+            reader.readNewerThan(cursor).count { it.startMillis >= oldestAllowed } + recordings
+        }.getOrDefault(recordings)
     }
 
     private fun isOnline(): Boolean {
@@ -345,4 +437,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun snack(text: String) =
         Snackbar.make(binding.root, text, Snackbar.LENGTH_LONG).show()
+
+    private companion object {
+        /** Ekran ochiq turganda holat shu oraliqda qayta hisoblanadi. */
+        const val REFRESH_INTERVAL_MS = 3_000L
+    }
 }

@@ -48,6 +48,7 @@
 
     <!-- Menyu -->
     <string name="menu_sync">Hozir yuborish</string>
+    <string name="menu_sync_today">Bugungi barcha qo\'ng\'iroqlarni yuborish</string>
     <string name="menu_test">Sinov: oxirgi qo\'ng\'iroq</string>
     <string name="menu_share_log">Jurnalni ulashish</string>
     <string name="menu_about">Ma\'lumot</string>
@@ -57,5 +58,7 @@
     <string name="msg_need_url_key">Odoo manzili va API kalit to\'ldirilishi kerak</string>
     <string name="msg_need_https">Manzil https:// bilan boshlanishi kerak</string>
     <string name="msg_sync_started">Yuborish boshlandi</string>
+    <string name="msg_sync_today">Bugungi qo\'ng\'iroqlar yuborilmoqda…</string>
+    <string name="msg_no_calls_today">Bugun qo\'ng\'iroq yo\'q</string>
     <string name="msg_log_cleared">Jurnal tozalandi</string>
 </resources>

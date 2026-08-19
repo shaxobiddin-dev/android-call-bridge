@@ -104,6 +104,23 @@ class CallLogReader(private val context: Context) {
         return 0L
     }
 
+    /**
+     * [sinceMillis] dan keyin boshlangan eng birinchi qo'ng'iroqning ID'si.
+     * "Bugungi hammasini yuborish" uchun kursorni orqaga surishda ishlatiladi.
+     */
+    fun firstIdSince(sinceMillis: Long): Long {
+        context.contentResolver.query(
+            CallLog.Calls.CONTENT_URI,
+            arrayOf(CallLog.Calls._ID),
+            "${CallLog.Calls.DATE} >= ?",
+            arrayOf(sinceMillis.toString()),
+            "${CallLog.Calls._ID} ASC",
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) return cursor.getLong(0)
+        }
+        return 0L
+    }
+
     /** CallLog turi -> voip.call dagi (direction, state). */
     private fun mapType(type: Int): Pair<String, String> = when (type) {
         CallLog.Calls.INCOMING_TYPE -> "incoming" to "terminated"
