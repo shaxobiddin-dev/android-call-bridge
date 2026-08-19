@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
@@ -18,8 +19,9 @@ import java.util.concurrent.TimeUnit
 /**
  * Qo'ng'iroq jurnalini o'qib Odoo'ga yuboradi, keyin audio yozuvni biriktiradi.
  *
- * WorkManager ishlatilgani uchun internet yo'q bo'lsa ish kutib turadi va
- * tarmoq paydo bo'lganda o'zi bajariladi — hech narsa yo'qolmaydi.
+ * To'liq avtomatik: foydalanuvchi hech narsa bosmaydi. Qo'ng'iroq tugagach
+ * PhoneStateReceiver shu ishni navbatga qo'yadi. Audio fayl hali tayyor
+ * bo'lmasa — o'zi qayta urinib turadi.
  */
 class CallSyncWorker(
     context: Context,
@@ -30,7 +32,6 @@ class CallSyncWorker(
         val prefs = Prefs(applicationContext)
 
         if (!prefs.isConfigured) {
-            prefs.log("Sozlanmagan: Odoo URL yoki API key yo'q")
             return Result.success()
         }
         if (!hasCallLogPermission()) {
@@ -43,7 +44,15 @@ class CallSyncWorker(
         val queue = RecordingQueue(applicationContext)
 
         // 1) Yangi qo'ng'iroqlar
-        val entries = reader.readNewerThan(prefs.lastCallLogId)
+        val entries = if (prefs.lastCallLogId == 0L) {
+            // Birinchi ishga tushish: butun tarixni to'kib yubormaymiz,
+            // lekin oxirgi bir nechtasini yuboramiz — shunda birinchi
+            // qo'ng'iroq ham yo'qolmaydi
+            reader.readNewerThan(0L).takeLast(FIRST_RUN_LIMIT)
+        } else {
+            reader.readNewerThan(prefs.lastCallLogId)
+        }
+
         if (entries.isNotEmpty()) {
             val ids = try {
                 api.push(prefs.deviceId, entries)
@@ -55,7 +64,7 @@ class CallSyncWorker(
             prefs.lastCallLogId = entries.maxOf { it.deviceCallId.toLong() }
             prefs.log("Yuborildi: ${entries.size} ta qo'ng'iroq")
 
-            // Audio yuklashni navbatga qo'yamiz (fayl hali yozilayotgan bo'lishi mumkin)
+            // Audio yuklashni navbatga qo'yamiz — fayl hali yozilayotgan bo'lishi mumkin
             for (entry in entries) {
                 val odooId = ids[entry.deviceCallId] ?: continue
                 if (entry.durationSeconds <= 0) continue // javobsiz — yozuv bo'lmaydi
@@ -66,6 +75,20 @@ class CallSyncWorker(
         // 2) Audio yozuvlar
         uploadRecordings(prefs, queue, api)
 
+        // 3) Navbatda qolgan bo'lsa — o'zini qayta rejalashtiradi.
+        //    Foydalanuvchi hech narsa bosmaydi.
+        val remaining = queue.read()
+        if (remaining.isNotEmpty()) {
+            val attempts = remaining.minOf { it.attempts }
+            val delayMinutes = when {
+                attempts <= 1 -> 1L
+                attempts <= 3 -> 3L
+                else -> 10L
+            }
+            scheduleRecordingRetry(applicationContext, delayMinutes)
+            prefs.log("Audio kutilmoqda (${remaining.size} ta) — $delayMinutes daq dan keyin qayta")
+        }
+
         return Result.success()
     }
 
@@ -74,6 +97,11 @@ class CallSyncWorker(
         for (pending in queue.read()) {
             val file = finder.find(pending.startMillis, pending.endMillis)
             if (file == null) {
+                // Birinchi urinishda tashxis yozamiz — telefonda yozuv papkasi
+                // bormi yoki umuman yozmayaptimi, shundan bilinadi
+                if (pending.attempts == 0) {
+                    prefs.log(finder.describeCandidates())
+                }
                 queue.markAttempt(pending.odooCallId)
                 continue
             }
@@ -95,7 +123,11 @@ class CallSyncWorker(
 
     companion object {
         private const val ONE_TIME = "call_sync_once"
+        private const val RETRY = "call_sync_recording_retry"
         private const val PERIODIC = "call_sync_periodic"
+
+        /** Birinchi ishga tushishda yuboriladigan eng oxirgi qo'ng'iroqlar soni. */
+        private const val FIRST_RUN_LIMIT = 3
 
         /**
          * Qo'ng'iroqdan keyin bir marta ishga tushirish.
@@ -107,14 +139,30 @@ class CallSyncWorker(
             val request = OneTimeWorkRequestBuilder<CallSyncWorker>()
                 .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
                 .setConstraints(networkConstraints())
-                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(context)
                 .enqueueUniqueWork(ONE_TIME, ExistingWorkPolicy.REPLACE, request)
         }
 
-        /** Foydalanuvchi "Hozir yuborish" bosganda. */
+        /** Sozlamalar saqlanganda yoki foydalanuvchi qo'lda so'raganda. */
         fun runNow(context: Context) = runAfterCall(context, delaySeconds = 0)
+
+        /**
+         * Audio hali topilmadi — keyinroq qayta urinish.
+         *
+         * Alohida nom ishlatiladi, aks holda yangi qo'ng'iroq bu ishni
+         * bekor qilib yuborardi.
+         */
+        fun scheduleRecordingRetry(context: Context, delayMinutes: Long) {
+            val request = OneTimeWorkRequestBuilder<CallSyncWorker>()
+                .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
+                .setConstraints(networkConstraints())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(RETRY, ExistingWorkPolicy.REPLACE, request)
+        }
 
         /**
          * Zaxira: broadcast o'tkazib yuborilgan bo'lsa ham har 15 daqiqada

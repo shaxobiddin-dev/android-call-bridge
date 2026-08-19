@@ -73,14 +73,12 @@ class MainActivity : AppCompatActivity() {
         prefs.odooUrl = url
         prefs.apiKey = key
 
-        // Birinchi sozlashda eski qo'ng'iroqlarni to'kib yubormaymiz —
-        // faqat shu paytdan keyingilari yuboriladi
-        if (prefs.lastCallLogId == 0L && hasPermission(Manifest.permission.READ_CALL_LOG)) {
-            prefs.lastCallLogId = CallLogReader(this).latestId()
-        }
-
+        // Shundan keyin hamma narsa avtomatik: qo'ng'iroq tugashi bilan
+        // PhoneStateReceiver ishga tushadi, zaxira sifatida har 15 daqiqada
+        // davriy tekshiruv boradi. Foydalanuvchi boshqa hech narsa bosmaydi.
         CallSyncWorker.schedulePeriodic(this)
-        prefs.log("Sozlamalar saqlandi")
+        CallSyncWorker.runNow(this)
+        prefs.log("Sozlamalar saqlandi — avtomatik rejim yoqildi")
         toast("Saqlandi")
         refresh()
     }
@@ -167,6 +165,9 @@ class MainActivity : AppCompatActivity() {
                 "Xato: ${e.message}"
             }
             prefs.log(message)
+            // Audio yuklashni ham darhol ishga tushiramiz — navbatga qo'yish
+            // yetarli emas, uni worker bajaradi
+            CallSyncWorker.runNow(this)
             runOnUiThread {
                 toast(message)
                 refresh()

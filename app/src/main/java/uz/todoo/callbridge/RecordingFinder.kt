@@ -25,9 +25,9 @@ class RecordingFinder(private val context: Context) {
      * Topilmasa null.
      */
     fun find(startMillis: Long, endMillis: Long): File? {
-        // Yozuv fayli qo'ng'iroq tugagandan keyin biroz kechikib yopiladi
-        val from = startMillis - TOLERANCE_MS
-        val to = endMillis + TOLERANCE_MS
+        // Yozuv fayli qo'ng'iroq tugagandan keyin ancha kechikib yopilishi mumkin
+        val from = startMillis - TOLERANCE_BEFORE_MS
+        val to = endMillis + TOLERANCE_AFTER_MS
 
         // 1) Eslab qolingan papka — eng tez yo'l
         prefs.recordingDir?.let { remembered ->
@@ -117,9 +117,32 @@ class RecordingFinder(private val context: Context) {
         else -> "audio/mpeg"
     }
 
+    /**
+     * Tashxis: qurilmada qaysi yozuv papkalari umuman mavjudligini ko'rsatadi.
+     * `adb` yo'q, shuning uchun bu ma'lumot ilova jurnaliga yoziladi.
+     */
+    fun describeCandidates(): String {
+        val root = Environment.getExternalStorageDirectory()
+        val found = KNOWN_DIRS.mapNotNull { relative ->
+            val dir = File(root, relative)
+            if (!dir.isDirectory) return@mapNotNull null
+            val audioCount = dir.walkTopDown().maxDepth(2)
+                .count { it.isFile && isAudio(it.name) }
+            "$relative ($audioCount audio)"
+        }
+        return if (found.isEmpty()) {
+            "Yozuv papkasi topilmadi. Telefon qo'ng'iroqni yozmayotgan bo'lishi mumkin."
+        } else {
+            "Mavjud papkalar: ${found.joinToString("; ")}"
+        }
+    }
+
     private companion object {
-        /** Yozuv fayli qo'ng'iroqdan biroz kechikib yopiladi. */
-        const val TOLERANCE_MS = 120_000L
+        /** Yozuv fayli qo'ng'iroq boshlanishidan sal oldin yaratilishi mumkin. */
+        const val TOLERANCE_BEFORE_MS = 60_000L
+
+        /** Uzoq qo'ng'iroqda fayl tugagandan keyin ancha kech yopiladi. */
+        const val TOLERANCE_AFTER_MS = 300_000L
 
         /** Juda kichik fayl — bu yozuv emas. */
         const val MIN_SIZE_BYTES = 2_000L
