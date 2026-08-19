@@ -5,6 +5,7 @@
 
     <string name="hint_url">Odoo URL (https://…)</string>
     <string name="hint_key">Odoo API key</string>
+    <string name="hint_device_name">Xodim va telefon nomi (Odoo\'da ko\'rinadi)</string>
     <string name="btn_save">Saqlash</string>
 
     <string name="section_setup">Bir marta sozlash</string>

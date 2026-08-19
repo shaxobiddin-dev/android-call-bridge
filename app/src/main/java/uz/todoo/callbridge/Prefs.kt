@@ -18,6 +18,11 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_API, "").orEmpty()
         set(value) = sp.edit().putString(KEY_API, value.trim()).apply()
 
+    /** Odoo'da guruhlash uchun ko'rinadigan nom, masalan "Ozodbek — Samsung S23+". */
+    var deviceName: String
+        get() = sp.getString(KEY_DEVICE_NAME, "").orEmpty()
+        set(value) = sp.edit().putString(KEY_DEVICE_NAME, value.trim()).apply()
+
     /** Oxirgi muvaffaqiyatli yuborilgan CallLog._ID. */
     var lastCallLogId: Long
         get() = sp.getLong(KEY_LAST_ID, 0L)
@@ -59,6 +64,7 @@ class Prefs(context: Context) {
     private companion object {
         const val KEY_URL = "odoo_url"
         const val KEY_API = "api_key"
+        const val KEY_DEVICE_NAME = "device_name_label"
         const val KEY_LAST_ID = "last_call_log_id"
         const val KEY_REC_DIR = "recording_dir"
         const val KEY_DEVICE = "device_id"

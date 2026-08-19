@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity() {
 
         binding.inputUrl.setText(prefs.odooUrl)
         binding.inputKey.setText(prefs.apiKey)
+        binding.inputDeviceName.setText(prefs.deviceName)
 
         binding.btnSave.setOnClickListener { save() }
         binding.btnPermissions.setOnClickListener { requestPermissions() }
@@ -72,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         }
         prefs.odooUrl = url
         prefs.apiKey = key
+        prefs.deviceName = binding.inputDeviceName.text.toString().trim()
 
         // Shundan keyin hamma narsa avtomatik: qo'ng'iroq tugashi bilan
         // PhoneStateReceiver ishga tushadi, zaxira sifatida har 15 daqiqada
@@ -153,7 +155,7 @@ class MainActivity : AppCompatActivity() {
             }
             val api = OdooApi(prefs.odooUrl, prefs.apiKey)
             val message = try {
-                val ids = api.push(prefs.deviceId, entries)
+                val ids = api.push(prefs.deviceId, entries, prefs.deviceName)
                 val entry = entries.first()
                 ids[entry.deviceCallId]?.let { odooId ->
                     if (entry.durationSeconds > 0) {
@@ -192,6 +194,7 @@ class MainActivity : AppCompatActivity() {
             appendLine("Telefon holati: ${mark(phone)}")
             appendLine("Fayllarga kirish (audio): ${mark(allFiles)}")
             appendLine("Batareya cheklovi o'chirilgan: ${mark(battery)}")
+            appendLine("Telefon nomi: ${prefs.deviceName.ifBlank { "— kiritilmagan —" }}")
             appendLine("Qurilma ID: ${prefs.deviceId}")
             appendLine("Oxirgi yuborilgan jurnal ID: ${prefs.lastCallLogId}")
             prefs.recordingDir?.let { appendLine("Yozuv papkasi: $it") }

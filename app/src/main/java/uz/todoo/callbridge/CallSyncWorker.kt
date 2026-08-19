@@ -63,7 +63,7 @@ class CallSyncWorker(
 
         if (entries.isNotEmpty()) {
             val ids = try {
-                api.push(prefs.deviceId, entries)
+                api.push(prefs.deviceId, entries, prefs.deviceName)
             } catch (e: Exception) {
                 prefs.log("Yuborilmadi (qayta urinamiz): ${e.message}")
                 return Result.retry()

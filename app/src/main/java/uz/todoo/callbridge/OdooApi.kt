@@ -34,7 +34,7 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
      *
      * @return device_call_id -> Odoo dagi voip.call id
      */
-    fun push(deviceId: String, calls: List<CallEntry>): Map<String, Long> {
+    fun push(deviceId: String, calls: List<CallEntry>, deviceName: String = ""): Map<String, Long> {
         val callsJson = JSONArray()
         for (call in calls) {
             callsJson.put(
@@ -50,6 +50,7 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
 
         val params = JSONObject()
             .put("device_id", deviceId)
+            .put("device_name", deviceName)
             .put("calls", callsJson)
 
         val envelope = JSONObject()

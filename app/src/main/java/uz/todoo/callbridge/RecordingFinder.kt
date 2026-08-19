@@ -48,7 +48,38 @@ class RecordingFinder(private val context: Context) {
         // 3) MediaStore (papka nomi noma'lum bo'lsa ham indekslangan bo'lishi mumkin)
         findInMediaStore(from, to)?.let { return it }
 
+        // 4) To'liq skanerlash — brend ro'yxatda yo'q va MediaStore ham
+        //    indekslamagan bo'lsa. Vaqt oynasi tor bo'lgani uchun begona
+        //    fayl tushib qolishi amalda kutilmaydi.
+        scanEverywhere(root, from, to)?.let { file ->
+            file.parent?.let { prefs.recordingDir = it }
+            prefs.log("Yozuv to'liq qidiruvda topildi: ${file.parent}")
+            return file
+        }
+
         return null
+    }
+
+    /**
+     * Butun ichki xotirani aylanib chiqadi.
+     *
+     * `Android/` papkasi o'tkazib yuboriladi: Android 11+ da unga
+     * MANAGE_EXTERNAL_STORAGE bilan ham kirib bo'lmaydi, shuning uchun
+     * u yerni tekshirish faqat vaqt yo'qotish.
+     */
+    private fun scanEverywhere(root: File, from: Long, to: Long): File? {
+        var best: File? = null
+        root.walkTopDown()
+            .maxDepth(MAX_SCAN_DEPTH)
+            .onEnter { dir -> dir.name != "Android" && !dir.name.startsWith(".") }
+            .forEach { file ->
+                if (!file.isFile) return@forEach
+                if (!isAudio(file.name)) return@forEach
+                if (file.length() < MIN_SIZE_BYTES) return@forEach
+                if (file.lastModified() !in from..to) return@forEach
+                if (best == null || file.lastModified() > best!!.lastModified()) best = file
+            }
+        return best
     }
 
     private fun scanDir(dir: File, from: Long, to: Long): File? {
@@ -146,6 +177,9 @@ class RecordingFinder(private val context: Context) {
 
         /** Juda kichik fayl — bu yozuv emas. */
         const val MIN_SIZE_BYTES = 2_000L
+
+        /** To'liq skanerlash chuqurligi — xotirani cheksiz aylanmaslik uchun. */
+        const val MAX_SCAN_DEPTH = 6
 
         val AUDIO_EXTENSIONS = listOf(".mp3", ".m4a", ".aac", ".amr", ".wav", ".ogg", ".3gp")
 

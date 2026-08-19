@@ -42,6 +42,15 @@
             android:hint="@string/hint_key"
             android:inputType="text" />
 
+        <EditText
+            android:id="@+id/inputDeviceName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:autofillHints="name"
+            android:hint="@string/hint_device_name"
+            android:inputType="textPersonName" />
+
         <Button
             android:id="@+id/btnSave"
             android:layout_width="match_parent"
