@@ -1,0 +1,17 @@
+# Lokal AI kontekst fayli — hech qachon commit qilinmaydi
+CLAUDE.md
+
+# Gradle / Android
+.gradle/
+build/
+local.properties
+*.apk
+*.aab
+*.iml
+.idea/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# macOS
+.DS_Store

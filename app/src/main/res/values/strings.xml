@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Call Bridge</string>
+    <string name="subtitle">Telefon qo\'ng\'iroqlarini avtomatik Odoo\'ga yuboradi</string>
+
+    <string name="hint_url">Odoo URL (https://…)</string>
+    <string name="hint_key">Odoo API key</string>
+    <string name="btn_save">Saqlash</string>
+
+    <string name="section_setup">Bir marta sozlash</string>
+    <string name="btn_permissions">1. Ruxsatlarni berish</string>
+    <string name="btn_all_files">2. Fayllarga kirish (audio uchun)</string>
+    <string name="btn_battery">3. Batareya cheklovini o\'chirish</string>
+
+    <string name="section_status">Holat</string>
+    <string name="btn_sync_now">Hozir yuborish</string>
+    <string name="btn_test_last">Sinov: oxirgi qo\'ng\'iroqni yuborish</string>
+
+    <string name="section_log">Jurnal</string>
+    <string name="btn_clear_log">Jurnalni tozalash</string>
+</resources>
