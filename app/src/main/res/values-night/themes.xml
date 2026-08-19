@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Qorong'i rejimda to'q binafsha o'qilmaydi — yorug'roq tonni asosiy
+         rang qilamiz, aks holda matn fon bilan qo'shilib ketadi. -->
+    <style name="Theme.CallBridge" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/odoo_purple_light</item>
+        <item name="colorOnPrimary">@color/odoo_purple_dark</item>
+        <item name="colorPrimaryContainer">@color/odoo_purple_dark</item>
+        <item name="colorOnPrimaryContainer">@color/odoo_purple_light</item>
+        <item name="colorSecondary">@color/odoo_purple_light</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

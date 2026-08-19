@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- NoActionBar: sarlavhani o'zimiz MaterialToolbar bilan chizamiz.
-         Aks holda tizim sarlavhasi bilan ustma-ust tushadi. -->
+    <!-- NoActionBar: sarlavhani MaterialToolbar chizadi, aks holda tizim
+         sarlavhasi bilan ustma-ust tushadi (1.0.x dagi buzilish shundan edi). -->
     <style name="Theme.CallBridge" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/odoo_purple</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">@color/odoo_purple_light</item>
+        <item name="colorOnPrimaryContainer">@color/odoo_purple_dark</item>
+        <item name="colorSecondary">@color/odoo_purple</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
