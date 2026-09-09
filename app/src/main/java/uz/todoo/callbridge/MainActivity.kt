@@ -26,7 +26,6 @@ import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.snackbar.Snackbar
 import uz.todoo.callbridge.databinding.ActivityMainBinding
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -73,11 +72,7 @@ class MainActivity : AppCompatActivity() {
         updateSaveButton()
 
         binding.btnSave.setOnClickListener { save() }
-        binding.btnClearLog.setOnClickListener {
-            prefs.clearLog()
-            refresh()
-            snack(getString(R.string.msg_log_cleared))
-        }
+        binding.btnResend.setOnClickListener { resendMissing() }
     }
 
     override fun onResume() {
@@ -128,7 +123,6 @@ class MainActivity : AppCompatActivity() {
                     snack(getString(R.string.msg_sync_started))
                     true
                 }
-                R.id.action_sync_today -> { syncToday(); true }
                 R.id.action_test -> { sendLastCallNow(); true }
                 R.id.action_share_log -> { shareLog(); true }
                 R.id.action_about -> { showAbout(); true }
@@ -270,7 +264,7 @@ class MainActivity : AppCompatActivity() {
                         .push(prefs.deviceId, entries, prefs.deviceName)
                     entries.first().let { entry ->
                         ids[entry.deviceCallId]?.let { odooId ->
-                            if (entry.durationSeconds > 0) {
+                            if (entry.expectsRecording) {
                                 RecordingQueue(this).add(odooId, entry.startMillis, entry.endMillis)
                             }
                         }
@@ -291,14 +285,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Bugungi barcha qo'ng'iroqlarni yuborish.
+     * Odoo'ga yetib bormagan hamma narsani qayta yuboradi.
      *
-     * Odatda faqat YANGI qo'ng'iroqlar ketadi (kursor oldinga suriladi).
-     * Bu amal kursorni bugungi birinchi qo'ng'iroqdan oldinga qaytaradi,
-     * shuning uchun bugungi hammasi qaytadan yuboriladi. Server dublikatni
-     * o'zi ajratadi, ya'ni takror yozuv paydo bo'lmaydi.
+     * Ikki bo'shliqni yopadi:
+     *  1. Qo'ng'iroqning O'ZI tushmagan — jurnal kursorini orqaga suramiz,
+     *     server dublikatni o'zi ajratadi.
+     *  2. Qo'ng'iroq bor, AUDIOSI yo'q — bayroq qo'yamiz, worker Odoo'ning
+     *     o'zidan "audiosi kelmaganlar" ro'yxatini so'raydi. Ilova qayta
+     *     o'rnatilgan yoki 24 soatlik urinish muddati tugagan bo'lsa ham
+     *     shu yo'l bilan tiklanadi.
      */
-    private fun syncToday() {
+    private fun resendMissing() {
         if (!prefs.isConfigured) {
             snack(getString(R.string.msg_need_url_key))
             return
@@ -307,22 +304,21 @@ class MainActivity : AppCompatActivity() {
             requestRuntimePermissions()
             return
         }
-        val dayStart = Calendar.getInstance().apply {
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }.timeInMillis
 
-        val firstId = CallLogReader(this).firstIdSince(dayStart)
-        if (firstId == 0L) {
-            snack(getString(R.string.msg_no_calls_today))
-            return
+        val since = System.currentTimeMillis() - CallSyncWorker.MAX_AGE_MS
+        val firstId = CallLogReader(this).firstIdSince(since)
+        if (firstId > 0) {
+            // Faqat ORQAGA suramiz — oldinga hech qachon
+            prefs.lastCallLogId = minOf(prefs.lastCallLogId, maxOf(0L, firstId - 1))
         }
-        prefs.lastCallLogId = maxOf(0L, firstId - 1)
+        // Xato bilan "band" deb belgilangan fayllar ham qayta ko'riladi —
+        // takrorlanishdan serverdagi checksum himoyasi saqlaydi
+        prefs.clearUploaded()
+        prefs.resendRequested = true
+
         CallSyncWorker.runNow(this)
-        prefs.log("Bugungi qo'ng'iroqlar qayta yuborilmoqda (ID >= $firstId)")
-        snack(getString(R.string.msg_sync_today))
+        prefs.log("Qayta yuborish so'raldi (jurnal ID >= $firstId)")
+        snack(getString(R.string.msg_resend_started))
         refresh()
     }
 
@@ -394,7 +390,6 @@ class MainActivity : AppCompatActivity() {
             ?.let { SimpleDateFormat("HH:mm", Locale.US).format(Date(it)) }
             ?: getString(R.string.dash)
 
-        binding.textLog.text = prefs.readLog().ifBlank { getString(R.string.log_empty) }
     }
 
     private fun setOverall(emoji: Int, title: Int, subtitle: Int) {

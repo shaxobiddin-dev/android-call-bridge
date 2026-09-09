@@ -9,9 +9,28 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 class OdooException(message: String) : Exception(message)
+
+/** Audio yuklash natijasi. */
+enum class UploadResult {
+    /** Fayl biriktirildi (yoki allaqachon shu qo'ng'iroqda bor edi). */
+    OK,
+
+    /** Server aytdi: bu fayl BOSHQA qo'ng'iroqniki. Boshqa fayl qidirish kerak. */
+    ALREADY_TAKEN,
+}
+
+/** Odoo'da bor, lekin audiosi yetib bormagan qo'ng'iroq. */
+data class PendingCall(
+    val callId: Long,
+    val startMillis: Long,
+    val endMillis: Long,
+)
 
 /**
  * Odoo `voip_android_bridge` moduli bilan aloqa.
@@ -27,6 +46,11 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(120, TimeUnit.SECONDS)
         .build()
+
+    /** Odoo naive UTC beradi: "yyyy-MM-dd HH:mm:ss" */
+    private val utcFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).apply {
+        timeZone = TimeZone.getTimeZone("UTC")
+    }
 
     /**
      * Qo'ng'iroqlarni yuboradi. Qayta yuborish xavfsiz — server dublikatni
@@ -53,42 +77,46 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
             .put("device_name", deviceName)
             .put("calls", callsJson)
 
-        val envelope = JSONObject()
-            .put("jsonrpc", "2.0")
-            .put("method", "call")
-            .put("params", params)
+        val result = jsonRpc("/voip/android/push", params)
+        val ids = result.optJSONObject("call_ids") ?: return emptyMap()
 
-        val request = Request.Builder()
-            .url("$baseUrl/voip/android/push")
-            .addHeader("Authorization", "Bearer $apiKey")
-            .post(envelope.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
-
-        client.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) {
-                throw OdooException("HTTP ${response.code}: ${body.take(300)}")
-            }
-            val json = JSONObject(body)
-            if (json.has("error")) {
-                throw OdooException(json.getJSONObject("error").optString("message", "noma'lum xato"))
-            }
-            val result = json.optJSONObject("result")
-                ?: throw OdooException("javobda 'result' yo'q: ${body.take(300)}")
-            val ids = result.optJSONObject("call_ids") ?: return emptyMap()
-
-            val map = mutableMapOf<String, Long>()
-            val keys = ids.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                map[key] = ids.getLong(key)
-            }
-            return map
+        val map = mutableMapOf<String, Long>()
+        val keys = ids.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            map[key] = ids.getLong(key)
         }
+        return map
+    }
+
+    /**
+     * Odoo'dan audiosi yetib bormagan qo'ng'iroqlar ro'yxatini oladi.
+     *
+     * Ilovaning o'z navbatiga tayanish yetarli emas: ilova qayta o'rnatilgan,
+     * xotirasi tozalangan yoki 24 soatlik urinish muddati tugagan bo'lishi
+     * mumkin. Nimaning audiosi yo'qligini aniq faqat Odoo biladi.
+     */
+    fun fetchPending(deviceId: String, maxAgeDays: Int = 7): List<PendingCall> {
+        val params = JSONObject()
+            .put("device_id", deviceId)
+            .put("max_age_days", maxAgeDays)
+
+        val result = jsonRpc("/voip/android/pending", params)
+        val calls = result.optJSONArray("calls") ?: return emptyList()
+
+        val list = mutableListOf<PendingCall>()
+        for (index in 0 until calls.length()) {
+            val obj = calls.optJSONObject(index) ?: continue
+            val id = obj.optLong("call_id")
+            val start = parseUtc(obj.optString("start")) ?: continue
+            val end = parseUtc(obj.optString("end")) ?: start
+            if (id > 0) list += PendingCall(id, start, end)
+        }
+        return list
     }
 
     /** Audio yozuvni mavjud qo'ng'iroqqa biriktiradi. */
-    fun uploadRecording(callId: Long, file: File, mimeType: String) {
+    fun uploadRecording(callId: Long, file: File, mimeType: String): UploadResult {
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("ufile", file.name, file.asRequestBody(mimeType.toMediaType()))
@@ -101,13 +129,53 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
             .build()
 
         client.newCall(request).execute().use { response ->
+            // 409 — server aytdi: ayni fayl boshqa qo'ng'iroqda bor.
+            // Bu xato emas, bu "boshqa fayl qidir" degani.
+            if (response.code == HTTP_CONFLICT) return UploadResult.ALREADY_TAKEN
             if (!response.isSuccessful) {
-                throw OdooException("audio HTTP ${response.code}: ${response.body?.string()?.take(200)}")
+                throw OdooException(
+                    "audio HTTP ${response.code}: ${response.body?.string()?.take(200)}"
+                )
             }
+            return UploadResult.OK
         }
+    }
+
+    private fun jsonRpc(path: String, params: JSONObject): JSONObject {
+        val envelope = JSONObject()
+            .put("jsonrpc", "2.0")
+            .put("method", "call")
+            .put("params", params)
+
+        val request = Request.Builder()
+            .url("$baseUrl$path")
+            .addHeader("Authorization", "Bearer $apiKey")
+            .post(envelope.toString().toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            val body = response.body?.string().orEmpty()
+            if (!response.isSuccessful) {
+                throw OdooException("HTTP ${response.code}: ${body.take(300)}")
+            }
+            val json = JSONObject(body)
+            if (json.has("error")) {
+                throw OdooException(
+                    json.getJSONObject("error").optString("message", "noma'lum xato")
+                )
+            }
+            return json.optJSONObject("result")
+                ?: throw OdooException("javobda 'result' yo'q: ${body.take(300)}")
+        }
+    }
+
+    private fun parseUtc(value: String?): Long? {
+        if (value.isNullOrBlank()) return null
+        return runCatching { utcFormat.parse(value)?.time }.getOrNull()
     }
 
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        const val HTTP_CONFLICT = 409
     }
 }

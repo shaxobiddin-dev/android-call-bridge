@@ -20,6 +20,16 @@ data class CallEntry(
     val startMillis: Long,
 ) {
     val endMillis: Long get() = startMillis + durationSeconds * 1000L
+
+    /**
+     * Telefon bu qo'ng'iroq uchun audio fayl yozganmi.
+     *
+     * Faqat gaplashilgan qo'ng'iroq yoziladi: javobsiz, rad etilgan yoki
+     * umuman ulanmagan (0 soniya) qo'ng'iroqda fayl paydo bo'lmaydi, shuning
+     * uchun ularni qidirib yurish — bekorga urinish.
+     */
+    val expectsRecording: Boolean
+        get() = durationSeconds > 0 && state == "terminated"
 }
 
 /**
@@ -72,7 +82,7 @@ class CallLogReader(private val context: Context) {
                 val date = cursor.getLong(dateIdx)
                 val duration = cursor.getInt(durationIdx)
 
-                val (direction, state) = mapType(type)
+                val (direction, state) = mapType(type, duration)
                 result += CallEntry(
                     deviceCallId = id.toString(),
                     phoneNumber = number,
@@ -121,15 +131,26 @@ class CallLogReader(private val context: Context) {
         return 0L
     }
 
-    /** CallLog turi -> voip.call dagi (direction, state). */
-    private fun mapType(type: Int): Pair<String, String> = when (type) {
-        CallLog.Calls.INCOMING_TYPE -> "incoming" to "terminated"
-        CallLog.Calls.OUTGOING_TYPE -> "outgoing" to "terminated"
+    /**
+     * CallLog turi -> voip.call dagi (direction, state).
+     *
+     * Davomiylik ham hisobga olinadi: Android raqam terilib ulanmagan
+     * qo'ng'iroqni ham OUTGOING deb yozadi, davomiyligi 0 bo'ladi. Uni
+     * "terminated" deb yuborsak Odoo'da haqiqiy suhbatdan farq qilmaydi va
+     * bir daqiqada ikki marta terilgan raqam dublikatdek ko'rinadi.
+     * `aborted` — voip.call ning standart holati
+     * (voip/models/voip_call.py:25, display_name uchun :89).
+     */
+    private fun mapType(type: Int, duration: Int): Pair<String, String> = when (type) {
+        CallLog.Calls.INCOMING_TYPE ->
+            "incoming" to if (duration > 0) "terminated" else "missed"
+        CallLog.Calls.OUTGOING_TYPE ->
+            "outgoing" to if (duration > 0) "terminated" else "aborted"
         CallLog.Calls.MISSED_TYPE -> "incoming" to "missed"
         CallLog.Calls.VOICEMAIL_TYPE -> "incoming" to "terminated"
         CallLog.Calls.REJECTED_TYPE -> "incoming" to "rejected"
         CallLog.Calls.BLOCKED_TYPE -> "incoming" to "rejected"
         CallLog.Calls.ANSWERED_EXTERNALLY_TYPE -> "incoming" to "terminated"
-        else -> "outgoing" to "terminated"
+        else -> "outgoing" to if (duration > 0) "terminated" else "aborted"
     }
 }

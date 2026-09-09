@@ -41,14 +41,13 @@
     <string name="pill_ok">BERILGAN</string>
     <string name="pill_bad">KERAK</string>
 
-    <!-- Jurnal -->
-    <string name="section_log">Jurnal</string>
-    <string name="btn_clear_log">Tozalash</string>
+    <!-- Qayta yuborish -->
+    <string name="btn_resend">Qayta yuborish</string>
+    <string name="resend_hint">Odooga tushmagan qo\'ng\'iroqlar va ovoz yozuvlarini qaytadan yuboradi</string>
     <string name="log_empty">— hali yozuv yo\'q —</string>
 
     <!-- Menyu -->
     <string name="menu_sync">Hozir yuborish</string>
-    <string name="menu_sync_today">Bugungi barcha qo\'ng\'iroqlarni yuborish</string>
     <string name="menu_test">Sinov: oxirgi qo\'ng\'iroq</string>
     <string name="menu_share_log">Jurnalni ulashish</string>
     <string name="menu_about">Ma\'lumot</string>
@@ -58,7 +57,5 @@
     <string name="msg_need_url_key">Odoo manzili va API kalit to\'ldirilishi kerak</string>
     <string name="msg_need_https">Manzil https:// bilan boshlanishi kerak</string>
     <string name="msg_sync_started">Yuborish boshlandi</string>
-    <string name="msg_sync_today">Bugungi qo\'ng\'iroqlar yuborilmoqda…</string>
-    <string name="msg_no_calls_today">Bugun qo\'ng\'iroq yo\'q</string>
-    <string name="msg_log_cleared">Jurnal tozalandi</string>
+    <string name="msg_resend_started">Qayta yuborish boshlandi — bir necha daqiqa vaqt olishi mumkin</string>
 </resources>

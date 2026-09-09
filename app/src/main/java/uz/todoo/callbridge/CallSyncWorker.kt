@@ -15,6 +15,15 @@ import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
+import kotlin.math.abs
+
+/** Bitta qo'ng'iroq va unga mos kelishi mumkin bo'lgan fayl. */
+private data class Match(
+    val call: PendingRecording,
+    val candidate: RecordingCandidate,
+    /** Fayl vaqti qo'ng'iroq oxiridan qancha uzoq — kichigi to'g'rirog'i. */
+    val distance: Long,
+)
 
 /**
  * Qo'ng'iroq jurnalini o'qib Odoo'ga yuboradi, keyin audio yozuvni biriktiradi.
@@ -55,7 +64,7 @@ class CallSyncWorker(
 
         // Ikkinchi himoya: qanday xato bo'lsa ham eski tarix yuborilmasin
         val oldestAllowed = System.currentTimeMillis() - MAX_AGE_MS
-        val all = reader.readNewerThan(prefs.lastCallLogId)
+        val all = reader.readNewerThan(prefs.lastCallLogId, READ_LIMIT)
         val entries = all.filter { it.startMillis >= oldestAllowed }
         if (all.size != entries.size) {
             prefs.log("${all.size - entries.size} ta eski qo'ng'iroq o'tkazib yuborildi")
@@ -74,10 +83,12 @@ class CallSyncWorker(
             prefs.addSent(entries.size)
             prefs.log("Yuborildi: ${entries.size} ta qo'ng'iroq")
 
-            // Audio yuklashni navbatga qo'yamiz — fayl hali yozilayotgan bo'lishi mumkin
+            // Audio yuklashni navbatga qo'yamiz — fayl hali yozilayotgan
+            // bo'lishi mumkin. Javobsiz/rad etilgan/ulanmagan qo'ng'iroqda
+            // telefon umuman yozmaydi, ular navbatga tushmaydi.
             for (entry in entries) {
                 val odooId = ids[entry.deviceCallId] ?: continue
-                if (entry.durationSeconds <= 0) continue // javobsiz — yozuv bo'lmaydi
+                if (!entry.expectsRecording) continue
                 queue.add(odooId, entry.startMillis, entry.endMillis)
             }
         }
@@ -88,49 +99,134 @@ class CallSyncWorker(
         if (all.isNotEmpty()) {
             prefs.lastCallLogId = all.maxOf { it.deviceCallId.toLong() }
         }
+        // Bir yurishda hammasi sig'masa — davomi bor
+        val moreToRead = all.size >= READ_LIMIT
 
-        // 2) Audio yozuvlar
+        // 2) "Qayta yuborish" bosilgan bo'lsa: audiosi yetib bormaganlarni
+        //    Odoo'ning O'ZIDAN so'raymiz. Ilova qayta o'rnatilgan yoki 24
+        //    soatlik muddat tugagan bo'lsa ham shu yerda tiklanadi.
+        if (prefs.resendRequested) {
+            try {
+                val pending = api.fetchPending(prefs.deviceId, RESEND_AGE_DAYS)
+                for (call in pending) {
+                    queue.restart(call.callId, call.startMillis, call.endMillis)
+                }
+                prefs.resendRequested = false
+                prefs.log("Odoo'da audiosiz ${pending.size} ta qo'ng'iroq — qayta urinamiz")
+            } catch (e: Exception) {
+                // Bayroq saqlanadi, keyingi yurishda qayta so'raladi
+                prefs.log("Ro'yxat olinmadi (qayta urinamiz): ${e.message}")
+            }
+        }
+
+        // 3) Audio yozuvlar
         uploadRecordings(prefs, queue, api)
 
-        // 3) Navbatda qolgan bo'lsa — o'zini qayta rejalashtiradi.
+        // 4) Ish qolgan bo'lsa — o'zini qayta rejalashtiradi.
         //    Foydalanuvchi hech narsa bosmaydi.
         val remaining = queue.read()
-        if (remaining.isNotEmpty()) {
-            val attempts = remaining.minOf { it.attempts }
-            val delayMinutes = when {
-                attempts <= 1 -> 1L
-                attempts <= 3 -> 3L
-                else -> 10L
+        when {
+            moreToRead -> {
+                scheduleFollowUp(applicationContext, 1L)
+                prefs.log("Jurnalda davomi bor — 1 daq dan keyin davom etamiz")
             }
-            scheduleRecordingRetry(applicationContext, delayMinutes)
-            prefs.log("Audio kutilmoqda (${remaining.size} ta) — $delayMinutes daq dan keyin qayta")
+            remaining.isNotEmpty() -> {
+                val attempts = remaining.minOf { it.attempts }
+                val delayMinutes = when {
+                    attempts <= 1 -> 1L
+                    attempts <= 3 -> 3L
+                    attempts <= 10 -> 10L
+                    else -> 30L
+                }
+                scheduleFollowUp(applicationContext, delayMinutes)
+                prefs.log("Audio kutilmoqda (${remaining.size} ta) — $delayMinutes daq dan keyin qayta")
+            }
         }
 
         return Result.success()
     }
 
+    /**
+     * Navbatdagi qo'ng'iroqlarga audio fayllarni taqsimlaydi.
+     *
+     * Har bir qo'ng'iroqni alohida "oynadagi eng yangi fayl" bilan bog'lash
+     * NOTO'G'RI: bir daqiqa oraliqda qilingan ikki qo'ng'iroqning oynasi
+     * kesishadi va birinchisi ikkinchisining faylini olib qo'yadi — Odoo'da
+     * ikkita yozuvda bitta audio paydo bo'ladi.
+     *
+     * Shuning uchun hammasi BIRGA ko'riladi: barcha mumkin bo'lgan
+     * (qo'ng'iroq, fayl) juftliklari masofa bo'yicha saralanadi va eng
+     * yaqinidan boshlab taqsimlanadi. Bitta fayl bitta qo'ng'iroqqa, bitta
+     * qo'ng'iroqqa bitta fayl.
+     */
     private fun uploadRecordings(prefs: Prefs, queue: RecordingQueue, api: OdooApi) {
+        val pending = queue.read()
+        if (pending.isEmpty()) return
+
         val finder = RecordingFinder(applicationContext)
-        for (pending in queue.read()) {
-            val file = finder.find(pending.startMillis, pending.endMillis)
-            if (file == null) {
-                // Birinchi urinishda tashxis yozamiz — telefonda yozuv papkasi
-                // bormi yoki umuman yozmayaptimi, shundan bilinadi
-                if (pending.attempts == 0) {
-                    prefs.log(finder.describeCandidates())
-                }
-                queue.markAttempt(pending.odooCallId)
-                continue
+        val windowFrom = pending.minOf { it.startMillis }
+        val windowTo = pending.maxOf { it.endMillis } + RecordingFinder.TOLERANCE_AFTER_MS
+        val candidates = finder.collectCandidates(windowFrom, windowTo)
+
+        val matches = mutableListOf<Match>()
+        for (call in pending) {
+            for (candidate in candidates) {
+                // Yozuv qo'ng'iroq boshlanishidan oldin tugay olmaydi
+                if (candidate.modified < call.startMillis) continue
+                if (candidate.modified > call.endMillis + RecordingFinder.TOLERANCE_AFTER_MS) continue
+                matches += Match(call, candidate, abs(candidate.modified - call.endMillis))
             }
+        }
+        matches.sortBy { it.distance }
+
+        val takenCalls = mutableSetOf<Long>()
+        val takenFiles = mutableSetOf<String>()
+        val assigned = mutableListOf<Match>()
+        for (match in matches) {
+            if (match.call.odooCallId in takenCalls) continue
+            if (match.candidate.path in takenFiles) continue
+            takenCalls += match.call.odooCallId
+            takenFiles += match.candidate.path
+            assigned += match
+        }
+
+        for (match in assigned) {
+            val file = match.candidate.file
             try {
-                api.uploadRecording(pending.odooCallId, file, finder.mimeTypeFor(file))
-                queue.remove(pending.odooCallId)
-                prefs.lastSyncMillis = System.currentTimeMillis()
-                prefs.log("Audio yuklandi: ${file.name}")
+                val result = api.uploadRecording(
+                    match.call.odooCallId, file, finder.mimeTypeFor(file)
+                )
+                when (result) {
+                    UploadResult.OK -> {
+                        prefs.markUploaded(match.candidate.path)
+                        queue.remove(match.call.odooCallId)
+                        prefs.lastSyncMillis = System.currentTimeMillis()
+                        prefs.log("Audio yuklandi: ${file.name}")
+                    }
+                    UploadResult.ALREADY_TAKEN -> {
+                        // Server aytdi: bu fayl boshqa qo'ng'iroqniki. Faylni
+                        // band deb belgilaymiz, qo'ng'iroq navbatda qoladi va
+                        // keyingi safar boshqa nomzod ko'riladi.
+                        prefs.markUploaded(match.candidate.path)
+                        queue.markAttempt(match.call.odooCallId)
+                        prefs.log("Fayl boshqa qo'ng'iroqniki: ${file.name}")
+                    }
+                }
             } catch (e: Exception) {
-                queue.markAttempt(pending.odooCallId)
+                queue.markAttempt(match.call.odooCallId)
                 prefs.log("Audio yuklanmadi: ${e.message}")
             }
+        }
+
+        // Fayl topilmaganlar — urinishni belgilaymiz (24 soatdan oshsa chiqadi)
+        val assignedIds = assigned.map { it.call.odooCallId }.toSet()
+        val unmatched = pending.filterNot { it.odooCallId in assignedIds }
+        if (unmatched.any { it.attempts == 0 }) {
+            // Telefonda yozuv papkasi bormi — kompyutersiz shundan bilinadi
+            prefs.log(finder.describeCandidates())
+        }
+        for (call in unmatched) {
+            queue.markAttempt(call.odooCallId)
         }
     }
 
@@ -141,7 +237,7 @@ class CallSyncWorker(
 
     companion object {
         private const val ONE_TIME = "call_sync_once"
-        private const val RETRY = "call_sync_recording_retry"
+        private const val FOLLOW_UP = "call_sync_follow_up"
         private const val PERIODIC = "call_sync_periodic"
 
         /** Birinchi ishga tushishda yuboriladigan eng oxirgi qo'ng'iroqlar soni. */
@@ -149,6 +245,12 @@ class CallSyncWorker(
 
         /** Bundan eski qo'ng'iroq hech qachon yuborilmaydi (7 kun). */
         const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
+
+        /** Bir yurishda jurnaldan o'qiladigan eng ko'p yozuv. */
+        const val READ_LIMIT = 200
+
+        /** "Qayta yuborish" necha kunlik orqaga qaraydi. */
+        const val RESEND_AGE_DAYS = 7
 
         /**
          * Qo'ng'iroqdan keyin bir marta ishga tushirish.
@@ -170,19 +272,20 @@ class CallSyncWorker(
         fun runNow(context: Context) = runAfterCall(context, delaySeconds = 0)
 
         /**
-         * Audio hali topilmadi — keyinroq qayta urinish.
+         * Ish tugamadi — keyinroq davom ettirish (audio hali topilmadi yoki
+         * jurnalda o'qilmagan yozuv qoldi).
          *
          * Alohida nom ishlatiladi, aks holda yangi qo'ng'iroq bu ishni
          * bekor qilib yuborardi.
          */
-        fun scheduleRecordingRetry(context: Context, delayMinutes: Long) {
+        fun scheduleFollowUp(context: Context, delayMinutes: Long) {
             val request = OneTimeWorkRequestBuilder<CallSyncWorker>()
                 .setInitialDelay(delayMinutes, TimeUnit.MINUTES)
                 .setConstraints(networkConstraints())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 1, TimeUnit.MINUTES)
                 .build()
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(RETRY, ExistingWorkPolicy.REPLACE, request)
+                .enqueueUniqueWork(FOLLOW_UP, ExistingWorkPolicy.REPLACE, request)
         }
 
         /**

@@ -9,11 +9,6 @@
         app:showAsAction="ifRoom" />
 
     <item
-        android:id="@+id/action_sync_today"
-        android:title="@string/menu_sync_today"
-        app:showAsAction="never" />
-
-    <item
         android:id="@+id/action_test"
         android:title="@string/menu_test"
         app:showAsAction="never" />

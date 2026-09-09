@@ -5,6 +5,11 @@ import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
 
+/** Nomzod audio fayl va uning oxirgi o'zgarish vaqti. */
+data class RecordingCandidate(val file: File, val modified: Long) {
+    val path: String get() = file.absolutePath
+}
+
 /**
  * Qo'ng'iroq audio yozuvini topadi.
  *
@@ -15,49 +20,58 @@ import java.io.File
  * Brend har xil papkaga yozadi, shuning uchun papkani qo'lda sozlamaymiz:
  * birinchi muvaffaqiyatli topilgan papka eslab qolinadi va keyingi safar
  * birinchi bo'lib o'sha ko'riladi.
+ *
+ * Bu klass QAROR QABUL QILMAYDI — faqat oynadagi barcha nomzodlarni
+ * qaytaradi. Qaysi fayl qaysi qo'ng'iroqniki ekanini `CallSyncWorker`
+ * hammasini birga ko'rib hal qiladi: ketma-ket ikki qo'ng'iroqning oynasi
+ * kesishadi va har birini alohida "eng yangi fayl" bilan bog'lash
+ * oldingi versiyada aynan dublikatga olib kelgan edi.
  */
 class RecordingFinder(private val context: Context) {
 
     private val prefs = Prefs(context)
 
     /**
-     * [startMillis] va [endMillis] oralig'ida yaratilgan audio faylni qaytaradi.
-     * Topilmasa null.
+     * [fromMillis] va [toMillis] oralig'ida o'zgargan barcha audio fayllar.
+     * Allaqachon Odoo'ga yuklangan fayllar ro'yxatga tushmaydi.
      */
-    fun find(startMillis: Long, endMillis: Long): File? {
-        // Yozuv fayli qo'ng'iroq tugagandan keyin ancha kechikib yopilishi mumkin
-        val from = startMillis - TOLERANCE_BEFORE_MS
-        val to = endMillis + TOLERANCE_AFTER_MS
+    fun collectCandidates(fromMillis: Long, toMillis: Long): List<RecordingCandidate> {
+        val found = LinkedHashMap<String, RecordingCandidate>()
 
         // 1) Eslab qolingan papka — eng tez yo'l
         prefs.recordingDir?.let { remembered ->
-            scanDir(File(remembered), from, to)?.let { return it }
+            collectFromDir(File(remembered), fromMillis, toMillis, found)
         }
 
         // 2) Ma'lum papkalar ro'yxati
         val root = Environment.getExternalStorageDirectory()
         for (relative in KNOWN_DIRS) {
             val dir = File(root, relative)
-            scanDir(dir, from, to)?.let {
+            val before = found.size
+            collectFromDir(dir, fromMillis, toMillis, found)
+            if (found.size > before && prefs.recordingDir != dir.absolutePath) {
                 prefs.recordingDir = dir.absolutePath
                 prefs.log("Yozuv papkasi topildi: ${dir.absolutePath}")
-                return it
             }
         }
 
         // 3) MediaStore (papka nomi noma'lum bo'lsa ham indekslangan bo'lishi mumkin)
-        findInMediaStore(from, to)?.let { return it }
+        collectFromMediaStore(fromMillis, toMillis, found)
 
         // 4) To'liq skanerlash — brend ro'yxatda yo'q va MediaStore ham
         //    indekslamagan bo'lsa. Vaqt oynasi tor bo'lgani uchun begona
         //    fayl tushib qolishi amalda kutilmaydi.
-        scanEverywhere(root, from, to)?.let { file ->
-            file.parent?.let { prefs.recordingDir = it }
-            prefs.log("Yozuv to'liq qidiruvda topildi: ${file.parent}")
-            return file
+        if (found.isEmpty()) {
+            collectEverywhere(root, fromMillis, toMillis, found)
+            found.values.firstOrNull()?.file?.parent?.let { parent ->
+                prefs.recordingDir = parent
+                prefs.log("Yozuv to'liq qidiruvda topildi: $parent")
+            }
         }
 
-        return null
+        // Band bo'lgan fayllarni bir marta o'qib chiqaramiz
+        val uploaded = prefs.uploadedPaths()
+        return found.values.filterNot { uploaded.contains(it.path) }
     }
 
     /**
@@ -67,41 +81,57 @@ class RecordingFinder(private val context: Context) {
      * MANAGE_EXTERNAL_STORAGE bilan ham kirib bo'lmaydi, shuning uchun
      * u yerni tekshirish faqat vaqt yo'qotish.
      */
-    private fun scanEverywhere(root: File, from: Long, to: Long): File? {
-        var best: File? = null
+    private fun collectEverywhere(
+        root: File,
+        from: Long,
+        to: Long,
+        into: MutableMap<String, RecordingCandidate>,
+    ) {
         root.walkTopDown()
             .maxDepth(MAX_SCAN_DEPTH)
             .onEnter { dir -> dir.name != "Android" && !dir.name.startsWith(".") }
-            .forEach { file ->
-                if (!file.isFile) return@forEach
-                if (!isAudio(file.name)) return@forEach
-                if (file.length() < MIN_SIZE_BYTES) return@forEach
-                if (file.lastModified() !in from..to) return@forEach
-                if (best == null || file.lastModified() > best!!.lastModified()) best = file
-            }
-        return best
+            .forEach { file -> consider(file, from, to, into) }
     }
 
-    private fun scanDir(dir: File, from: Long, to: Long): File? {
-        if (!dir.isDirectory || !dir.canRead()) return null
-        val files = dir.listFiles() ?: return null
-        var best: File? = null
+    private fun collectFromDir(
+        dir: File,
+        from: Long,
+        to: Long,
+        into: MutableMap<String, RecordingCandidate>,
+        depth: Int = 0,
+    ) {
+        if (depth > MAX_DIR_DEPTH) return
+        if (!dir.isDirectory || !dir.canRead()) return
+        val files = dir.listFiles() ?: return
         for (file in files) {
             if (file.isDirectory) {
-                scanDir(file, from, to)?.let { nested ->
-                    if (best == null || nested.lastModified() > best!!.lastModified()) best = nested
-                }
-                continue
+                collectFromDir(file, from, to, into, depth + 1)
+            } else {
+                consider(file, from, to, into)
             }
-            if (!isAudio(file.name)) continue
-            if (file.length() < MIN_SIZE_BYTES) continue
-            if (file.lastModified() !in from..to) continue
-            if (best == null || file.lastModified() > best!!.lastModified()) best = file
         }
-        return best
     }
 
-    private fun findInMediaStore(from: Long, to: Long): File? {
+    private fun consider(
+        file: File,
+        from: Long,
+        to: Long,
+        into: MutableMap<String, RecordingCandidate>,
+    ) {
+        if (!file.isFile) return
+        if (!isAudio(file.name)) return
+        if (file.length() < MIN_SIZE_BYTES) return
+        val modified = file.lastModified()
+        if (modified !in from..to) return
+        val path = file.absolutePath
+        if (!into.containsKey(path)) into[path] = RecordingCandidate(file, modified)
+    }
+
+    private fun collectFromMediaStore(
+        from: Long,
+        to: Long,
+        into: MutableMap<String, RecordingCandidate>,
+    ) {
         val projection = arrayOf(
             MediaStore.Audio.Media.DATA,
             MediaStore.Audio.Media.DATE_MODIFIED,
@@ -111,27 +141,25 @@ class RecordingFinder(private val context: Context) {
         val selection = "${MediaStore.Audio.Media.DATE_MODIFIED} BETWEEN ? AND ?"
         val args = arrayOf((from / 1000).toString(), (to / 1000).toString())
 
-        context.contentResolver.query(
-            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            selection,
-            args,
-            "${MediaStore.Audio.Media.DATE_MODIFIED} DESC",
-        )?.use { cursor ->
-            val dataIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-            val sizeIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
-            while (cursor.moveToNext()) {
-                val path = cursor.getString(dataIdx) ?: continue
-                if (cursor.getLong(sizeIdx) < MIN_SIZE_BYTES) continue
-                val file = File(path)
-                if (file.exists() && file.canRead() && isAudio(file.name)) {
-                    prefs.recordingDir = file.parent
-                    prefs.log("Yozuv MediaStore'dan topildi: ${file.parent}")
-                    return file
+        runCatching {
+            context.contentResolver.query(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                projection,
+                selection,
+                args,
+                "${MediaStore.Audio.Media.DATE_MODIFIED} DESC",
+            )?.use { cursor ->
+                val dataIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+                val sizeIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+                while (cursor.moveToNext()) {
+                    val path = cursor.getString(dataIdx) ?: continue
+                    if (cursor.getLong(sizeIdx) < MIN_SIZE_BYTES) continue
+                    val file = File(path)
+                    if (!file.exists() || !file.canRead() || !isAudio(file.name)) continue
+                    consider(file, from, to, into)
                 }
             }
         }
-        return null
     }
 
     private fun isAudio(name: String): Boolean =
@@ -168,23 +196,30 @@ class RecordingFinder(private val context: Context) {
         }
     }
 
-    private companion object {
-        /** Yozuv fayli qo'ng'iroq boshlanishidan sal oldin yaratilishi mumkin. */
-        const val TOLERANCE_BEFORE_MS = 60_000L
-
-        /** Uzoq qo'ng'iroqda fayl tugagandan keyin ancha kech yopiladi. */
-        const val TOLERANCE_AFTER_MS = 300_000L
+    companion object {
+        /**
+         * Yozuv fayli qo'ng'iroq tugagandan keyin biroz kechikib yopiladi.
+         *
+         * Avval 5 daqiqa edi: bir necha daqiqa oraliqda qilingan ikki
+         * qo'ng'iroqning oynasi kesishib, bitta fayl ikkalasiga ham
+         * biriktirilardi. 2 daqiqa amalda yetarli.
+         */
+        const val TOLERANCE_AFTER_MS = 120_000L
 
         /** Juda kichik fayl — bu yozuv emas. */
         const val MIN_SIZE_BYTES = 2_000L
 
         /** To'liq skanerlash chuqurligi — xotirani cheksiz aylanmaslik uchun. */
-        const val MAX_SCAN_DEPTH = 6
+        private const val MAX_SCAN_DEPTH = 6
 
-        val AUDIO_EXTENSIONS = listOf(".mp3", ".m4a", ".aac", ".amr", ".wav", ".ogg", ".3gp")
+        /** Ma'lum papka ichida nechta qavat pastga tushamiz. */
+        private const val MAX_DIR_DEPTH = 3
+
+        private val AUDIO_EXTENSIONS =
+            listOf(".mp3", ".m4a", ".aac", ".amr", ".wav", ".ogg", ".3gp")
 
         /** Brendlarning odatiy qo'ng'iroq yozuvi papkalari. */
-        val KNOWN_DIRS = listOf(
+        private val KNOWN_DIRS = listOf(
             "MIUI/sound_recorder/call_rec",   // Xiaomi / Redmi / POCO
             "Recordings/Call",                 // Android 14+ standart, Pixel
             "Recordings",

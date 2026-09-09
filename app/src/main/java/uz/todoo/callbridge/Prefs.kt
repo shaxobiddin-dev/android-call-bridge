@@ -33,6 +33,47 @@ class Prefs(context: Context) {
         get() = sp.getString(KEY_REC_DIR, null)
         set(value) = sp.edit().putString(KEY_REC_DIR, value).apply()
 
+    /**
+     * Allaqachon Odoo'ga yuklangan audio fayllar.
+     *
+     * Bitta fayl FAQAT bitta qo'ng'iroqqa tegishli. Ketma-ket qilingan ikki
+     * qo'ng'iroqning vaqt oynasi kesishishi mumkin, shuning uchun fayl
+     * band bo'lgach ro'yxatdan chiqariladi — aks holda ikkinchi qo'ng'iroqqa
+     * ham o'sha fayl biriktirilib, dublikat paydo bo'ladi.
+     */
+    fun isUploaded(path: String): Boolean = uploadedPaths().contains(path)
+
+
+    fun markUploaded(path: String) {
+        val paths = uploadedPaths().toMutableList()
+        if (paths.contains(path)) return
+        paths += path
+        val array = org.json.JSONArray()
+        for (item in paths.takeLast(MAX_UPLOADED_PATHS)) array.put(item)
+        sp.edit().putString(KEY_UPLOADED, array.toString()).apply()
+    }
+
+    fun uploadedPaths(): Set<String> {
+        val raw = sp.getString(KEY_UPLOADED, null) ?: return emptySet()
+        val array = runCatching { org.json.JSONArray(raw) }.getOrNull() ?: return emptySet()
+        return (0 until array.length()).mapNotNull { array.optString(it).ifBlank { null } }.toSet()
+    }
+
+    /**
+     * "Band fayllar" ro'yxatini tozalaydi.
+     *
+     * "Qayta yuborish" bosilganda chaqiriladi. Fayl xato bilan band deb
+     * belgilanib qolgan bo'lsa (masalan Odoo'dagi yozuv o'chirilgan) audio
+     * boshqa hech qachon yuborilmasdi. Tozalash xavfsiz: fayl haqiqatan
+     * boshqa qo'ng'iroqda bo'lsa server 409 qaytaradi va dublikat bo'lmaydi.
+     */
+    fun clearUploaded() = sp.edit().remove(KEY_UPLOADED).apply()
+
+    /** Tugma bosilganda Odoo'dan "audiosi yetib bormaganlar" ro'yxati so'raladi. */
+    var resendRequested: Boolean
+        get() = sp.getBoolean(KEY_RESEND, false)
+        set(value) = sp.edit().putBoolean(KEY_RESEND, value).apply()
+
     /** Qurilmaning barqaror identifikatori. */
     val deviceId: String
         get() {
@@ -99,6 +140,9 @@ class Prefs(context: Context) {
         const val KEY_SENT_COUNT = "sent_count"
         const val KEY_LAST_SYNC = "last_sync_millis"
         const val KEY_LAST_ERROR = "last_error"
+        const val KEY_UPLOADED = "uploaded_paths"
+        const val KEY_RESEND = "resend_requested"
+        const val MAX_UPLOADED_PATHS = 300
         const val MAX_LOG_CHARS = 20_000
     }
 }
