@@ -15,6 +15,9 @@
     <string name="state_offline">Internet yo\'q</string>
     <string name="state_offline_sub">Qo\'ng\'iroqlar navbatda saqlanmoqda. Internet paydo bo\'lishi bilan o\'zi yuboriladi.</string>
 
+    <string name="state_error">Odoo bilan aloqa yo\'q</string>
+    <string name="state_error_sub">Qo\'ng\'iroqlar navbatda saqlanmoqda. Muammo davom etsa, administratorga murojaat qiling.</string>
+
     <!-- Hisob -->
     <string name="stat_sent">Bugun yuborildi</string>
     <string name="stat_pending">Navbatda</string>
@@ -44,12 +47,10 @@
     <!-- Qayta yuborish -->
     <string name="btn_resend">Qayta yuborish</string>
     <string name="resend_hint">Odooga tushmagan qo\'ng\'iroqlar va ovoz yozuvlarini qaytadan yuboradi</string>
-    <string name="log_empty">— hali yozuv yo\'q —</string>
 
     <!-- Menyu -->
     <string name="menu_sync">Hozir yuborish</string>
     <string name="menu_test">Sinov: oxirgi qo\'ng\'iroq</string>
-    <string name="menu_share_log">Jurnalni ulashish</string>
     <string name="menu_about">Ma\'lumot</string>
 
     <!-- Xabarlar -->
@@ -57,5 +58,24 @@
     <string name="msg_need_url_key">Odoo manzili va API kalit to\'ldirilishi kerak</string>
     <string name="msg_need_https">Manzil https:// bilan boshlanishi kerak</string>
     <string name="msg_sync_started">Yuborish boshlandi</string>
+    <string name="msg_test_failed">Yuborilmadi. Keyinroq avtomatik qayta uriniladi.</string>
     <string name="msg_resend_started">Qayta yuborish boshlandi — bir necha daqiqa vaqt olishi mumkin</string>
+
+    <!-- PIN -->
+    <string name="pin_title">PIN kodni kiriting</string>
+    <string name="pin_subtitle">Xodim kartangizdagi 4 xonali kod</string>
+    <string name="pin_hint">PIN</string>
+    <string name="pin_submit">Kirish</string>
+    <string name="pin_checking">Tekshirilmoqda…</string>
+    <string name="pin_wrong">PIN noto\'g\'ri. Yana %1$d ta urinish qoldi.</string>
+    <string name="pin_locked">Juda ko\'p xato urinish. %1$d daqiqadan keyin qayta urinib ko\'ring.</string>
+    <string name="pin_not_set">Xodim kartangizda 4 xonali PIN yo\'q. HR bo\'limiga murojaat qiling.</string>
+    <string name="pin_offline">PIN\'ni tekshirish uchun internet kerak. Qo\'ng\'iroqlar fonda yuborilishda davom etadi.</string>
+    <string name="pin_server_error">Odoo javob bermadi. Administratorga murojaat qiling. Qo\'ng\'iroqlar navbatda saqlanadi.</string>
+    <string name="pin_invalid_key">API kalit noto\'g\'ri yoki muddati tugagan. Yangi kalit kiriting.</string>
+    <string name="pin_reconfigure">Ulanishni qayta sozlash</string>
+    <string name="pin_reconfigure_confirm">Manzilni tuzatish uchun API kalit o\'chiriladi va uni qayta kiritish kerak bo\'ladi. Davom etasizmi?</string>
+    <string name="pin_reconfigure_ok">Ha, davom etish</string>
+    <string name="pin_reconfigure_cancel">Bekor qilish</string>
+    <string name="msg_enter_connection">Odoo manzili va API kalitni qayta kiriting</string>
 </resources>

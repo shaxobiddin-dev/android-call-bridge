@@ -2,6 +2,7 @@ package uz.todoo.callbridge
 
 import android.content.Context
 import android.provider.Settings
+import android.util.Log
 import java.util.UUID
 
 /** Sozlamalar va sinxronizatsiya holati (SharedPreferences). */
@@ -10,9 +11,18 @@ class Prefs(context: Context) {
     private val appContext = context.applicationContext
     private val sp = appContext.getSharedPreferences("call_bridge", Context.MODE_PRIVATE)
 
+    init {
+        // Eski versiyalar jurnalni shu yerda saqlardi (xom server javoblari bilan)
+        if (sp.contains(KEY_LOG)) sp.edit().remove(KEY_LOG).apply()
+    }
+
+    /**
+     * Getter ham tozalaydi: ilova yangilanganda eski saqlangan manzil qayta
+     * "Saqlash" bosilmasa ham tuzaladi, fondagi worker ham shu qiymatni oladi.
+     */
     var odooUrl: String
-        get() = sp.getString(KEY_URL, "").orEmpty()
-        set(value) = sp.edit().putString(KEY_URL, value.trim().trimEnd('/')).apply()
+        get() = normalizeUrl(sp.getString(KEY_URL, "").orEmpty())
+        set(value) = sp.edit().putString(KEY_URL, normalizeUrl(value)).apply()
 
     var apiKey: String
         get() = sp.getString(KEY_API, "").orEmpty()
@@ -22,6 +32,11 @@ class Prefs(context: Context) {
     var deviceName: String
         get() = sp.getString(KEY_DEVICE_NAME, "").orEmpty()
         set(value) = sp.edit().putString(KEY_DEVICE_NAME, value.trim()).apply()
+
+    /** Shu manzil va kalit bilan PIN kamida bir marta serverda tasdiqlanganmi. */
+    var pinVerified: Boolean
+        get() = sp.getBoolean(KEY_PIN_VERIFIED, false)
+        set(value) = sp.edit().putBoolean(KEY_PIN_VERIFIED, value).apply()
 
     /** Oxirgi muvaffaqiyatli yuborilgan CallLog._ID. */
     var lastCallLogId: Long
@@ -115,34 +130,48 @@ class Prefs(context: Context) {
     private fun today(): String =
         android.text.format.DateFormat.format("yyyy-MM-dd", System.currentTimeMillis()).toString()
 
-    // --- Status jurnali (adb yo'q, shuning uchun app ichida ko'rsatamiz) ---
-
+    /** Texnik yozuv faqat logcat'ga tushadi, xodimga hech qayerda ko'rinmaydi. */
     fun log(line: String) {
-        val stamp = android.text.format.DateFormat.format("MM-dd HH:mm:ss", System.currentTimeMillis())
-        val existing = sp.getString(KEY_LOG, "").orEmpty()
-        val updated = "[$stamp] $line\n$existing".take(MAX_LOG_CHARS)
-        sp.edit().putString(KEY_LOG, updated).apply()
+        Log.i(LOG_TAG, line)
     }
 
-    fun readLog(): String = sp.getString(KEY_LOG, "").orEmpty()
+    companion object {
+        private const val KEY_URL = "odoo_url"
+        private const val KEY_API = "api_key"
+        private const val KEY_DEVICE_NAME = "device_name_label"
+        private const val KEY_LAST_ID = "last_call_log_id"
+        private const val KEY_REC_DIR = "recording_dir"
+        private const val KEY_DEVICE = "device_id"
+        private const val KEY_LOG = "status_log"
+        private const val KEY_SENT_DAY = "sent_day"
+        private const val KEY_SENT_COUNT = "sent_count"
+        private const val KEY_LAST_SYNC = "last_sync_millis"
+        private const val KEY_LAST_ERROR = "last_error"
+        private const val KEY_UPLOADED = "uploaded_paths"
+        private const val KEY_RESEND = "resend_requested"
+        private const val KEY_PIN_VERIFIED = "pin_verified"
+        private const val MAX_UPLOADED_PATHS = 300
+        private const val LOG_TAG = "OdooCalls"
 
-    fun clearLog() = sp.edit().remove(KEY_LOG).apply()
+        /** Odoo web client yo'llari (web/controllers/home.py:46). */
+        private val WEB_CLIENT_SEGMENTS = setOf("odoo", "web", "scoped_app")
 
-    private companion object {
-        const val KEY_URL = "odoo_url"
-        const val KEY_API = "api_key"
-        const val KEY_DEVICE_NAME = "device_name_label"
-        const val KEY_LAST_ID = "last_call_log_id"
-        const val KEY_REC_DIR = "recording_dir"
-        const val KEY_DEVICE = "device_id"
-        const val KEY_LOG = "status_log"
-        const val KEY_SENT_DAY = "sent_day"
-        const val KEY_SENT_COUNT = "sent_count"
-        const val KEY_LAST_SYNC = "last_sync_millis"
-        const val KEY_LAST_ERROR = "last_error"
-        const val KEY_UPLOADED = "uploaded_paths"
-        const val KEY_RESEND = "resend_requested"
-        const val MAX_UPLOADED_PATHS = 300
-        const val MAX_LOG_CHARS = 20_000
+        /**
+         * Brauzerdan nusxalangan manzilni server manziliga keltiradi.
+         *
+         * `https://x.com/odoo/...` saqlansa so'rov `/odoo/<path>` web client
+         * route'iga tushadi va "invalid CSRF token" qaytaradi.
+         */
+        fun normalizeUrl(raw: String): String {
+            val cleaned = raw.trim().substringBefore('#').substringBefore('?').trimEnd('/')
+            val schemeEnd = cleaned.indexOf("://")
+            if (schemeEnd < 0) return cleaned
+            val pathStart = cleaned.indexOf('/', schemeEnd + 3)
+            if (pathStart < 0) return cleaned
+            val origin = cleaned.substring(0, pathStart)
+            val kept = cleaned.substring(pathStart + 1).split('/')
+                .takeWhile { it.lowercase() !in WEB_CLIENT_SEGMENTS }
+            return (listOf(origin) + kept).joinToString("/")
+        }
     }
 }

@@ -46,6 +46,11 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".PinActivity"
+            android:exported="false"
+            android:windowSoftInputMode="stateVisible|adjustResize" />
+
         <!-- Qo'ng'iroq tugashini ushlaydi -->
         <receiver
             android:name=".PhoneStateReceiver"

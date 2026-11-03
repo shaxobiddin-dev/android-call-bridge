@@ -77,6 +77,13 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        PinSession.takeFormResetMessage()?.let { message ->
+            binding.inputUrl.setText(prefs.odooUrl)
+            binding.inputKey.setText(prefs.apiKey)
+            snack(getString(message))
+        }
+        if (askPinIfNeeded()) return
+        PinSession.onForeground()
         refresh()
         ticker.postDelayed(tick, REFRESH_INTERVAL_MS)
     }
@@ -86,12 +93,30 @@ class MainActivity : AppCompatActivity() {
         ticker.removeCallbacks(tick)
     }
 
+    override fun onStop() {
+        super.onStop()
+        PinSession.onBackground()
+    }
+
+    /**
+     * Sozlangan ilova PIN'siz ochilmaydi. Birinchi sozlashda kiritiladigan
+     * kalit hali yo'q, shuning uchun forma ochiq turadi.
+     *
+     * @return true bo'lsa PIN ekrani ochildi, asosiy ekran yashirin qoladi
+     */
+    private fun askPinIfNeeded(): Boolean {
+        val needed = prefs.isConfigured && !PinSession.isUnlocked()
+        binding.root.visibility = if (needed) View.INVISIBLE else View.VISIBLE
+        if (needed) startActivity(Intent(this, PinActivity::class.java))
+        return needed
+    }
+
     /**
      * Saqlash tugmasi faqat o'zgarish bo'lganda yonadi. Saqlangandan keyin
      * o'chadi — bosishga hojat yo'qligi shundan bilinadi.
      */
     private fun updateSaveButton() {
-        val changed = binding.inputUrl.text.toString().trim().trimEnd('/') != prefs.odooUrl ||
+        val changed = Prefs.normalizeUrl(binding.inputUrl.text.toString()) != prefs.odooUrl ||
             binding.inputKey.text.toString().trim() != prefs.apiKey ||
             binding.inputDeviceName.text.toString().trim() != prefs.deviceName
         binding.btnSave.isEnabled = changed
@@ -124,7 +149,6 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
                 R.id.action_test -> { sendLastCallNow(); true }
-                R.id.action_share_log -> { shareLog(); true }
                 R.id.action_about -> { showAbout(); true }
                 else -> false
             }
@@ -169,7 +193,7 @@ class MainActivity : AppCompatActivity() {
     // ------------------------------------------------------------------
 
     private fun save() {
-        val url = binding.inputUrl.text.toString().trim().trimEnd('/')
+        val url = Prefs.normalizeUrl(binding.inputUrl.text.toString())
         val key = binding.inputKey.text.toString().trim()
         if (url.isBlank() || key.isBlank()) {
             snack(getString(R.string.msg_need_url_key))
@@ -179,8 +203,14 @@ class MainActivity : AppCompatActivity() {
             snack(getString(R.string.msg_need_https))
             return
         }
+        // Boshqa kalit — boshqa xodim, shuning uchun PIN qaytadan so'raladi
+        if (url != prefs.odooUrl || key != prefs.apiKey) {
+            prefs.pinVerified = false
+            PinSession.lock()
+        }
         prefs.odooUrl = url
         prefs.apiKey = key
+        binding.inputUrl.setText(url)
         prefs.deviceName = binding.inputDeviceName.text.toString().trim()
 
         // Shundan keyin hamma narsa avtomatik.
@@ -189,6 +219,7 @@ class MainActivity : AppCompatActivity() {
         prefs.log("Sozlamalar saqlandi — avtomatik rejim yoqildi")
         snack(getString(R.string.msg_saved))
         updateSaveButton()
+        if (askPinIfNeeded()) return
         refresh()
     }
 
@@ -272,7 +303,8 @@ class MainActivity : AppCompatActivity() {
                     prefs.lastSyncMillis = System.currentTimeMillis()
                     "Yuborildi: ${entries.first().phoneNumber}"
                 } catch (e: Exception) {
-                    "Xato: ${e.message}"
+                    prefs.log("Sinov yuborilmadi: ${e.message}")
+                    getString(R.string.msg_test_failed)
                 }
             }
             prefs.log(message)
@@ -322,20 +354,6 @@ class MainActivity : AppCompatActivity() {
         refresh()
     }
 
-    private fun shareLog() {
-        val text = prefs.readLog().ifBlank { getString(R.string.log_empty) }
-        startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_SUBJECT, "Call Bridge jurnali")
-                    putExtra(Intent.EXTRA_TEXT, text)
-                },
-                getString(R.string.menu_share_log)
-            )
-        )
-    }
-
     private fun showAbout() {
         AlertDialog.Builder(this)
             .setTitle(R.string.app_name)
@@ -346,10 +364,6 @@ class MainActivity : AppCompatActivity() {
                     appendLine("Qurilma ID: ${prefs.deviceId}")
                     appendLine("Oxirgi jurnal ID: ${prefs.lastCallLogId}")
                     prefs.recordingDir?.let { appendLine("Yozuv papkasi: $it") }
-                    if (prefs.lastError.isNotBlank()) {
-                        appendLine()
-                        appendLine("Oxirgi xato: ${prefs.lastError}")
-                    }
                 }
             )
             .setPositiveButton("OK", null)
@@ -380,6 +394,7 @@ class MainActivity : AppCompatActivity() {
         when {
             !ready -> setOverall(R.string.emoji_bad, R.string.state_setup, R.string.state_setup_sub)
             !isOnline() -> setOverall(R.string.emoji_wait, R.string.state_offline, R.string.state_offline_sub)
+            prefs.lastError.isNotBlank() -> setOverall(R.string.emoji_bad, R.string.state_error, R.string.state_error_sub)
             else -> setOverall(R.string.emoji_ok, R.string.state_ready, R.string.state_ready_sub)
         }
 

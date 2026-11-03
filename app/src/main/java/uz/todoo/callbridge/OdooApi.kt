@@ -9,12 +9,30 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
-class OdooException(message: String) : Exception(message)
+class OdooException(message: String, val invalidKey: Boolean = false) : Exception(message)
+
+/** PIN tekshiruvi natijasi. */
+sealed class PinResult {
+    object Ok : PinResult()
+
+    /** Xodim kartasida 4 xonali PIN yo'q yoki xodim kartasining o'zi yo'q. */
+    object NotSet : PinResult()
+    data class Wrong(val attemptsLeft: Int) : PinResult()
+    data class Locked(val retryAfterSeconds: Int) : PinResult()
+
+    /** API kalit noto'g'ri yoki muddati tugagan. */
+    object InvalidKey : PinResult()
+    object Offline : PinResult()
+
+    /** Manzil noto'g'ri yoki Odoo modul yangilanmagan. */
+    object ServerError : PinResult()
+}
 
 /** Audio yuklash natijasi. */
 enum class UploadResult {
@@ -115,6 +133,27 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
         return list
     }
 
+    /** PIN'ni kalit egasining xodim kartasi bilan serverda solishtiradi. */
+    fun verifyPin(pin: String): PinResult {
+        return try {
+            val result = jsonRpc("/voip/android/verify_pin", JSONObject().put("pin", pin))
+            when {
+                result.optBoolean("ok") -> PinResult.Ok
+                result.optString("reason") == "not_set" -> PinResult.NotSet
+                result.optString("reason") == "wrong" -> PinResult.Wrong(result.optInt("attempts_left"))
+                result.optString("reason") == "locked" -> PinResult.Locked(result.optInt("retry_after"))
+                else -> PinResult.ServerError
+            }
+        } catch (e: OdooException) {
+            if (e.invalidKey) PinResult.InvalidKey else PinResult.ServerError
+        } catch (e: IOException) {
+            PinResult.Offline
+        } catch (e: Exception) {
+            // JSON o'rniga HTML kelgan yoki manzil URL sifatida yaroqsiz
+            PinResult.ServerError
+        }
+    }
+
     /** Audio yozuvni mavjud qo'ng'iroqqa biriktiradi. */
     fun uploadRecording(callId: Long, file: File, mimeType: String): UploadResult {
         val body = MultipartBody.Builder()
@@ -156,12 +195,20 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
         client.newCall(request).execute().use { response ->
             val body = response.body?.string().orEmpty()
             if (!response.isSuccessful) {
-                throw OdooException("HTTP ${response.code}: ${body.take(300)}")
+                throw OdooException(
+                    "HTTP ${response.code}: ${body.take(300)}",
+                    invalidKey = response.code == HTTP_UNAUTHORIZED,
+                )
             }
             val json = JSONObject(body)
             if (json.has("error")) {
+                val error = json.getJSONObject("error")
+                // jsonrpc route xatoni HTTP 200 ichida qaytaradi (odoo/http.py,
+                // JsonRPCDispatcher.handle_error), shuning uchun nomidan ajratamiz
+                val name = error.optJSONObject("data")?.optString("name").orEmpty()
                 throw OdooException(
-                    json.getJSONObject("error").optString("message", "noma'lum xato")
+                    error.optString("message", "noma'lum xato"),
+                    invalidKey = name.contains("Unauthorized"),
                 )
             }
             return json.optJSONObject("result")
@@ -177,5 +224,6 @@ class OdooApi(private val baseUrl: String, private val apiKey: String) {
     private companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         const val HTTP_CONFLICT = 409
+        const val HTTP_UNAUTHORIZED = 401
     }
 }
