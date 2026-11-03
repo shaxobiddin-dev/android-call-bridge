@@ -4,7 +4,7 @@
     <color name="odoo_purple">#714B67</color>
     <color name="odoo_purple_dark">#5B3C53</color>
     <color name="odoo_purple_light">#A98BA0</color>
-    <color name="ic_launcher_background">#714B67</color>
+    <color name="ic_launcher_background">#F6F1FB</color>
 
     <!-- Holat ranglari: yorug' va qorong'i rejimda ham o'qiladigan tonlar -->
     <color name="status_ok">#2E7D32</color>
